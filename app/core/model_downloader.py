@@ -10,7 +10,26 @@ class ModelDownloader:
         self.complete_marker = self.model_dir / ".download_complete"
 
     def is_ready(self) -> bool:
-        return self.complete_marker.exists()
+        if self.complete_marker.exists():
+            return True
+        required = [
+            "model.safetensors",
+            "audiovae.pth",
+        ]
+        return all((self.model_dir / name).exists() for name in required)
+
+    def missing_required_files(self) -> list[str]:
+        required = [
+            "model.safetensors",
+            "audiovae.pth",
+        ]
+        return [str(self.model_dir / name) for name in required if not (self.model_dir / name).exists()]
+
+    def mark_complete_if_ready(self) -> bool:
+        if self.is_ready():
+            self.complete_marker.write_text("ok", encoding="utf-8")
+            return True
+        return False
 
     def clone_voxcpm_repo(self, repo_dir: str, logger) -> None:
         repo_path = Path(repo_dir)

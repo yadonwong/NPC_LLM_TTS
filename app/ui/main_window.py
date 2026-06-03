@@ -59,10 +59,11 @@ class MainWindow(QMainWindow):
         self.engine=QComboBox(); self.engine.addItems(['voxcpm','indextts']); self.engine.setCurrentText(getattr(self.config,'tts_engine','voxcpm')); self.engine.currentTextChanged.connect(lambda _: self.status_model())
         self.cfg=QLineEdit(str(self.config.cfg_value)); self.steps=QLineEdit(str(self.config.inference_timesteps)); self.seed=QLineEdit(str(self.config.random_seed))
         self.den=QCheckBox('load_denoiser'); self.den.setChecked(self.config.load_denoiser)
+        self.offline=QCheckBox('离线模式（不联网下载模型）'); self.offline.setChecked(getattr(self.config,'offline_mode',False))
         self.pol=QComboBox(); self.pol.addItems(['skip','overwrite','version']); self.pol.setCurrentText(self.config.overwrite_policy)
         self.reuse=QCheckBox('复用 VoiceID 参考'); self.reuse.setChecked(self.config.reuse_voice_cache)
         self.regen=QCheckBox('每次重新生成参考'); self.regen.setChecked(not self.config.reuse_voice_cache); self.regen.stateChanged.connect(lambda: self.reuse.setChecked(not self.regen.isChecked()))
-        f.addRow('TTS引擎',self.engine); f.addRow('device',self.dev); f.addRow('cfg_value',self.cfg); f.addRow('inference_timesteps',self.steps); f.addRow('random_seed',self.seed); f.addRow('',self.den); f.addRow('覆盖策略',self.pol); f.addRow('',self.reuse); f.addRow('',self.regen); ll.addWidget(g2)
+        f.addRow('TTS引擎',self.engine); f.addRow('device',self.dev); f.addRow('cfg_value',self.cfg); f.addRow('inference_timesteps',self.steps); f.addRow('random_seed',self.seed); f.addRow('',self.den); f.addRow('',self.offline); f.addRow('覆盖策略',self.pol); f.addRow('',self.reuse); f.addRow('',self.regen); ll.addWidget(g2)
         g3=QGroupBox('音频设置'); a=QFormLayout(g3)
         self.norm=QCheckBox('启用响度归一化'); self.norm.setChecked(self.config.enable_loudness_normalization)
         self.lufs=QLineEdit(str(self.config.target_lufs)); self.tp=QLineEdit(str(self.config.true_peak_ceiling))
@@ -301,12 +302,19 @@ class MainWindow(QMainWindow):
         return pd.DataFrame(rows)
 
     def apply_cfg(self):
-        c=self.config; c.tts_engine=self.engine.currentText(); c.device=self.dev.currentText(); c.cfg_value=float(self.cfg.text()); c.inference_timesteps=int(self.steps.text()); c.load_denoiser=self.den.isChecked(); c.random_seed=self.seed.text().strip(); c.enable_loudness_normalization=self.norm.isChecked(); c.target_lufs=float(self.lufs.text()); c.true_peak_ceiling=float(self.tp.text()); c.overwrite_policy=self.pol.currentText(); c.reuse_voice_cache=self.reuse.isChecked() and not self.regen.isChecked()
+        c=self.config; c.tts_engine=self.engine.currentText(); c.device=self.dev.currentText(); c.cfg_value=float(self.cfg.text()); c.inference_timesteps=int(self.steps.text()); c.load_denoiser=self.den.isChecked(); c.offline_mode=self.offline.isChecked(); c.random_seed=self.seed.text().strip(); c.enable_loudness_normalization=self.norm.isChecked(); c.target_lufs=float(self.lufs.text()); c.true_peak_ceiling=float(self.tp.text()); c.overwrite_policy=self.pol.currentText(); c.reuse_voice_cache=self.reuse.isChecked() and not self.regen.isChecked()
     def save_cfg(self): save_settings(self.config)
 
     def start(self):
         try: self.apply_cfg(); self.save_cfg()
         except Exception as e: QMessageBox.critical(self,'参数错误',str(e)); return
+        if getattr(self.config,'offline_mode',False):
+            os.environ['HF_HUB_OFFLINE']='1'
+            os.environ['TRANSFORMERS_OFFLINE']='1'
+            os.environ['HF_DATASETS_OFFLINE']='1'
+        else:
+            for k in ['HF_HUB_OFFLINE','TRANSFORMERS_OFFLINE','HF_DATASETS_OFFLINE']:
+                os.environ.pop(k, None)
 
         use_single_tab = hasattr(self,'tabs') and self.tabs.currentIndex()==1
         if use_single_tab:
@@ -326,11 +334,21 @@ class MainWindow(QMainWindow):
         model_manager=None
 
         if engine=='voxcpm':
-            self.lb_model.setText('VoxCPM2: 下载/检查中'); self.append_log('步骤 1/3: 正在检查/下载 VoxCPM2 模型...')
-            ok,msg=self.downloader.ensure_model(self.logger, progress_cb=self.append_log)
-            if not ok:
-                self.pb2.setRange(0,1); self.pb2.setValue(0); self.bs.setEnabled(True)
-                self.lb_model.setText('VoxCPM2: 下载失败'); QMessageBox.critical(self,'模型下载失败',msg); return
+            if getattr(self.config,'offline_mode',False):
+                self.lb_model.setText('VoxCPM2: 离线检查中'); self.append_log('离线模式: 正在检查本地 VoxCPM2 模型...')
+                if not self.downloader.is_ready():
+                    self.pb2.setRange(0,1); self.pb2.setValue(0); self.bs.setEnabled(True)
+                    self.lb_model.setText('VoxCPM2: 本地模型缺失')
+                    missing='\n'.join(self.downloader.missing_required_files())
+                    QMessageBox.warning(self,'VoxCPM2 本地模型不完整', f'离线模式不会联网下载模型。请补齐以下文件：\n\n{missing}\n\n目录：{self.config.model_path}')
+                    return
+                self.downloader.mark_complete_if_ready()
+            else:
+                self.lb_model.setText('VoxCPM2: 下载/检查中'); self.append_log('步骤 1/3: 正在检查/下载 VoxCPM2 模型...')
+                ok,msg=self.downloader.ensure_model(self.logger, progress_cb=self.append_log)
+                if not ok:
+                    self.pb2.setRange(0,1); self.pb2.setValue(0); self.bs.setEnabled(True)
+                    self.lb_model.setText('VoxCPM2: 下载失败'); QMessageBox.critical(self,'模型下载失败',msg); return
             self.lb_model.setText('VoxCPM2: 加载中'); self.append_log('步骤 2/3: 正在加载 VoxCPM2 模型...')
             try: dev=self.vox.load_model(device=self.config.device, load_denoiser=self.config.load_denoiser); self.lb_dev.setText(f'设备: {dev}')
             except Exception as e:

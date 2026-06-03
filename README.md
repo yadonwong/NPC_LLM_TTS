@@ -129,6 +129,50 @@ NPC_LLM_TTS/
 
 > 注意：`models/` 已加入 `.gitignore`，不会上传到 GitHub。换电脑或重新克隆项目后，需要重新下载并放回上述目录。
 
+### 离线运行
+
+程序支持在无网络环境下运行，但需要提前在有网络时完成以下准备：
+
+1. 至少运行一次：
+
+```bash
+python bootstrap.py
+```
+
+这一步会创建 `.venv`、安装 Python 依赖，并克隆/安装 `third_party/VoxCPM` 与 `third_party/index-tts`。
+
+2. 按“模型下载与存放位置”章节，把需要的模型完整放入 `models/`：
+   - `models/VoxCPM2/`
+   - `models/IndexTTS-2/`
+   - `models/MaskGCT/semantic_codec/`
+   - `models/bigvgan_v2_22khz_80band_256x/`
+
+3. 无网络启动时，直接运行：
+
+```bash
+python run_dev.py
+```
+
+或双击：
+
+- macOS: `start_mac.command`
+- Windows: `start_windows.bat`
+
+启动脚本在检测到 `.venv` 已存在时，会直接启动程序，不再重复执行联网安装。
+
+4. 在界面左侧“生成设置”中勾选：
+
+```text
+离线模式（不联网下载模型）
+```
+
+勾选后：
+
+- `VoxCPM2` 只检查本地 `models/VoxCPM2/`，不会尝试联网下载。
+- `IndexTTS` 只检查本地模型和依赖缓存，缺文件时会弹窗提示具体路径。
+
+> 如果是第一次在新电脑运行，且还没有 `.venv` 或 `third_party/`，仍然需要先联网执行 `bootstrap.py`，或从已配置好的电脑完整拷贝 `.venv/`、`third_party/` 和 `models/`。
+
 ---
 
 ## 4. Excel 格式要求

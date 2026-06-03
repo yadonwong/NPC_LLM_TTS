@@ -25,6 +25,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "random_seed": "",
     "tts_engine": "voxcpm",
     "index_model_path": str(BASE_DIR / "models" / "IndexTTS-2"),
+    "offline_mode": False,
 }
 
 @dataclass
@@ -47,6 +48,7 @@ class AppConfig:
     random_seed: str = ""
     tts_engine: str = "voxcpm"
     index_model_path: str = str(BASE_DIR / "models" / "IndexTTS-2")
+    offline_mode: bool = False
 
 
 def load_settings() -> AppConfig:

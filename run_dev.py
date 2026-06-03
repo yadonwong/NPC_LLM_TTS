@@ -1,3 +1,4 @@
+import os
 import platform
 import subprocess
 import sys
@@ -16,6 +17,7 @@ def py(name: str):
 def main():
     if not VENV.exists():
         subprocess.check_call([sys.executable, str(ROOT / 'bootstrap.py')], cwd=ROOT)
+    os.environ.setdefault('HF_HUB_DISABLE_SYMLINKS_WARNING', '1')
     python = py('python')
     subprocess.check_call([python, '-m', 'app.main'], cwd=ROOT)
 

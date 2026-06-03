@@ -21,8 +21,10 @@ if [ -z "$PY_BIN" ]; then
   exit 1
 fi
 
-# 1) 用系统可用 Python 执行 bootstrap，创建/修复 .venv
-"$PY_BIN" "$DIR/bootstrap.py"
+# 1) 首次运行才执行 bootstrap，已有 .venv 时不联网安装/下载依赖
+if [ ! -x "$VENV_PY" ]; then
+  "$PY_BIN" "$DIR/bootstrap.py"
+fi
 
 # 2) 强制使用项目 .venv 运行，避免 macOS 外部管理环境冲突
 if [ ! -x "$VENV_PY" ]; then
