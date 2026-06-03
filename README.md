@@ -359,12 +359,4 @@ NPC_LLM_TTS/
   build_app.py
   start_mac.command
   start_windows.bat
-```
 
----
-
-如需我继续扩展文档，我可以再补：
-
-- Excel 模板下载链接章节
-- 参数推荐预设（快速/均衡/高质量）
-- 批量生产 SOP（多人协作版）
