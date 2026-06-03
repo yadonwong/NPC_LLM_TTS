@@ -1,0 +1,47 @@
+QWidget { background: #12151b; color: #e6eaf2; font-family: 'SF Pro Text', 'Segoe UI', sans-serif; font-size: 13px; }
+QMainWindow { background: #0f1218; }
+#Card { background: #181d26; border: 1px solid #283041; border-radius: 12px; padding: 8px; }
+#CardTitle { color: #b7c2d9; font-weight: 600; padding: 2px 4px 8px 4px; }
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit { background: #0f131a; border: 1px solid #2f3b52; border-radius: 8px; padding: 6px; color: #f0f3f8; }
+QPushButton { background: #2b3446; border: 1px solid #3e4f6d; border-radius: 8px; padding: 8px 12px; }
+QPushButton:hover { background: #35435c; }
+#StartButton { background: #ff6a00; border: 1px solid #ff8c3a; color: #ffffff; font-weight: 700; padding: 9px 14px; }
+#StartButton:hover { background: #ff7d1f; border: 1px solid #ff9b4c; }
+#StartButton:pressed { background: #e55f00; border: 1px solid #ff8c3a; }
+#PrimaryButton { background: #4b5cff; border: 1px solid #6170ff; color: white; font-weight: 600; }
+#DangerButton { background: #8f2b3a; border: 1px solid #be495c; color: #ffe8ec; }
+QTableView { background: #0f131a; alternate-background-color: #141924; gridline-color: #273044; selection-background-color: #2f3f66; }
+QHeaderView::section { background: #1d2432; color: #d5def1; border: 1px solid #2e3850; padding: 6px; }
+QProgressBar { background: #0f131a; border: 1px solid #2f3b52; border-radius: 8px; text-align: center; }
+QProgressBar::chunk { background: #5e6dff; border-radius: 7px; }
+
+QTabWidget::pane {
+  border: 1px solid #2e3850;
+  border-radius: 10px;
+  top: -1px;
+  background: #121822;
+}
+QTabBar::tab {
+  background: #273044;
+  color: #dce5f7;
+  border: 1px solid #3b4966;
+  border-bottom: none;
+  border-top-left-radius: 9px;
+  border-top-right-radius: 9px;
+  padding: 8px 16px;
+  margin-right: 4px;
+  font-weight: 600;
+}
+QTabBar::tab:hover {
+  background: #33415c;
+  color: #f2f6ff;
+}
+QTabBar::tab:selected {
+  background: #2f8cff;
+  color: #ffffff;
+  border-color: #4da0ff;
+}
+QTabBar::tab:!selected {
+  margin-top: 2px;
+}
+#StatusBadge { background: #1c2434; border: 1px solid #33425e; border-radius: 8px; padding: 4px 8px; }
