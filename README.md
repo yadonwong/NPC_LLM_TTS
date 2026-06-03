@@ -403,4 +403,86 @@ NPC_LLM_TTS/
   build_app.py
   start_mac.command
   start_windows.bat
+```
 
+---
+
+## 16. 开源项目与许可证说明
+
+本项目是一个桌面端工作流封装工具，调用和集成了若干第三方开源项目、模型与 Python 依赖。各第三方项目的版权、商标、模型权重和许可证归其原作者/权利方所有。使用、分发或商用本项目时，请同时遵守对应第三方项目和模型的许可证、模型卡与使用限制。
+
+> 本节仅用于归属说明和合规提示，不构成法律意见。许可证版本和使用限制可能随上游项目更新而变化，请以官方仓库、模型卡和随包 `LICENSE` 文件为准。
+
+### 16.1 主要 TTS 引擎 / 模型
+
+#### VoxCPM / VoxCPM2
+
+- 项目名称：`VoxCPM`
+- 上游作者/组织：`OpenBMB`
+- 官方代码仓库：[https://github.com/OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM)
+- 模型页面：
+  - HuggingFace: [openbmb/VoxCPM2](https://huggingface.co/openbmb/VoxCPM2)
+  - ModelScope: [OpenBMB/VoxCPM2](https://modelscope.cn/models/OpenBMB/VoxCPM2)
+- 本项目中的用途：作为 `voxcpm` TTS 引擎，用于文本转语音、参考音色生成与复用。
+- 本项目中的位置：
+  - 代码：`third_party/VoxCPM/`（由 `bootstrap.py` 克隆并以 editable 方式安装）
+  - 模型：`models/VoxCPM2/`（不随 GitHub 仓库上传）
+- 许可证：`Apache-2.0`。本地克隆后可查看：`third_party/VoxCPM/LICENSE`。
+
+#### IndexTTS / IndexTTS2
+
+- 项目名称：`IndexTTS2`
+- 上游作者/组织：`Bilibili IndexTTS Team`
+- 官方代码仓库：[https://github.com/index-tts/index-tts](https://github.com/index-tts/index-tts)
+- 模型页面：
+  - HuggingFace: [IndexTeam/IndexTTS-2](https://huggingface.co/IndexTeam/IndexTTS-2)
+  - ModelScope: [IndexTeam/IndexTTS-2](https://modelscope.cn/models/IndexTeam/IndexTTS-2)
+- 本项目中的用途：作为 `indextts` TTS 引擎，支持基于参考音频的零样本音色生成。
+- 本项目中的位置：
+  - 代码：`third_party/index-tts/`（由 `bootstrap.py` 克隆并以 editable 方式安装）
+  - 模型：`models/IndexTTS-2/`（不随 GitHub 仓库上传）
+- 许可证/使用协议：`LicenseRef-Bilibili-IndexTTS` / `bilibili Model Use License Agreement`。本地克隆后可查看：`third_party/index-tts/LICENSE`。
+- 特别注意：IndexTTS2 的模型使用协议包含使用限制、合规义务、高风险场景限制、下游分发要求等条款；如需商用或对外分发，请务必阅读并遵守官方协议。
+
+### 16.2 IndexTTS 相关依赖模型
+
+#### MaskGCT semantic codec
+
+- 项目/模型名称：`MaskGCT`
+- 上游项目：`Amphion / MaskGCT`
+- 模型页面：[https://huggingface.co/amphion/MaskGCT](https://huggingface.co/amphion/MaskGCT)
+- 相关代码/说明：[https://github.com/open-mmlab/Amphion](https://github.com/open-mmlab/Amphion)
+- 本项目中的用途：作为 `IndexTTS2` 推理所需的 semantic codec 依赖。
+- 本项目中的位置：`models/MaskGCT/semantic_codec/model.safetensors`（不随 GitHub 仓库上传）
+- 许可证：请以官方 HuggingFace 模型卡、Amphion 仓库和随模型文件提供的许可证说明为准。
+
+#### BigVGAN vocoder
+
+- 项目/模型名称：`BigVGAN`
+- 上游作者/组织：`NVIDIA`
+- 官方代码仓库：[https://github.com/NVIDIA/BigVGAN](https://github.com/NVIDIA/BigVGAN)
+- 模型页面：[nvidia/bigvgan_v2_22khz_80band_256x](https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x)
+- 本项目中的用途：作为 `IndexTTS2` 推理所需的 vocoder 依赖。
+- 本项目中的位置：`models/bigvgan_v2_22khz_80band_256x/`（不随 GitHub 仓库上传）
+- 许可证：HuggingFace 模型卡标注为 `MIT`，请以官方模型卡和仓库许可证为准。
+
+### 16.3 Python 开源依赖
+
+本项目还依赖以下 Python 开源库，详见 `requirements.txt`：
+
+- UI / 桌面端：`PySide6`
+- 数据处理：`pandas`, `openpyxl`, `numpy`, `scipy`
+- 音频处理：`soundfile`, `librosa`, `pyloudnorm`, `ffmpeg-python`
+- 深度学习 / 推理：`torch`, `torchaudio`, `omegaconf`, `protobuf`
+- 模型下载与托管：`huggingface_hub`, `modelscope`
+- 打包与工具：`pyinstaller`, `gitpython`
+
+这些依赖均归各自作者/组织所有，并适用其各自的开源许可证。打包、分发或商用时，请根据实际发布形式检查这些依赖的许可证兼容性和声明要求。
+
+### 16.4 生成内容与参考音频责任
+
+本项目支持导入参考音频并生成语音。用户应确保：
+
+- 参考音频、Excel 文本、控制指令等输入内容拥有合法使用权；
+- 不使用本项目生成或传播违法、侵权、欺诈、冒充他人或违反第三方模型协议的内容；
+- 若对外发布生成音频，应根据适用法律和平台规则进行必要标识或取得授权。
