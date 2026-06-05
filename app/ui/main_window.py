@@ -75,7 +75,15 @@ class MainWindow(QMainWindow):
         C=QWidget(); cl=QVBoxLayout(C); self.search=QLineEdit(); self.search.setPlaceholderText('搜索...'); self.search.textChanged.connect(lambda t: self.proxy and self.proxy.setFilterFixedString(t)); self.table=QTableView(); self.table.setAlternatingRowColors(True); cl.addWidget(self.search); cl.addWidget(self.table)
         tabs.addTab(C, 'Excel预览')
 
-        single_tab=QWidget(); sl=QFormLayout(single_tab)
+        single_tab=QWidget()
+        single_outer=QHBoxLayout(single_tab)
+        single_outer.setContentsMargins(12,12,12,12)
+        single_form_wrap=QWidget()
+        single_form_wrap.setMaximumWidth(760)
+        sl=QFormLayout(single_form_wrap)
+        sl.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        sl.setLabelAlignment(Qt.AlignLeft)
+        sl.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.sg_voice_id=QLineEdit(); self.sg_script_id=QLineEdit(); self.sg_region=QLineEdit(); self.sg_subregion=QLineEdit()
         self.sg_control=QLineEdit(); self.sg_totts_cn=QPlainTextEdit(); self.sg_totts_cn.setPlaceholderText('中文文本 TOTTS_CN')
         self.sg_ref_wav_path=QLineEdit(); self.sg_ref_wav_path.setPlaceholderText('可选：选择参考音频文件（wav/flac/mp3/m4a）')
@@ -88,6 +96,8 @@ class MainWindow(QMainWindow):
         ref_wrap=QWidget(); ref_wrap.setLayout(ref_row)
         sl.addRow('音色参考文件', ref_wrap)
         sl.addRow('控制指令', self.sg_control); sl.addRow('TOTTS_CN', self.sg_totts_cn); sl.addRow('TOTTS_EN', self.sg_totts_en); sl.addRow('生成条数', self.sg_count)
+        single_outer.addWidget(single_form_wrap)
+        single_outer.addStretch(1)
         tabs.addTab(single_tab, '单句生成')
 
         ref_tab=QWidget(); rfl=QVBoxLayout(ref_tab)
@@ -98,6 +108,10 @@ class MainWindow(QMainWindow):
         btn_refresh_ref=QPushButton('刷新参考状态'); btn_refresh_ref.clicked.connect(self.refresh_ref_table)
         rb.addWidget(self.ref_voice_filter); rb.addWidget(btn_import_ref); rb.addWidget(btn_import_ref_current); rb.addWidget(btn_delete_ref); rb.addWidget(btn_refresh_ref)
         self.ref_table=QTableWidget(); self.ref_table.setColumnCount(3); self.ref_table.setHorizontalHeaderLabels(['VoiceID','参考文件','状态']); self.ref_table.horizontalHeader().setStretchLastSection(True)
+        self.ref_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.ref_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.ref_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.ref_table.customContextMenuRequested.connect(self.show_ref_table_menu)
         self.ref_voice_filter.textChanged.connect(self.refresh_ref_table)
         rfl.addLayout(rb); rfl.addWidget(self.ref_table)
         tabs.addTab(ref_tab, '参考音色管理')
@@ -254,19 +268,52 @@ class MainWindow(QMainWindow):
         self.ensure_voice_id_visible_in_ref_table(vid)
         self.import_ref_for_selected()
 
+    def show_ref_table_menu(self, pos):
+        selected_rows=self.get_selected_ref_rows()
+        if not selected_rows:
+            return
+        menu=QMenu(self)
+        delete_action=menu.addAction(f'删除选中音色（{len(selected_rows)} 个）')
+        action=menu.exec(self.ref_table.viewport().mapToGlobal(pos))
+        if action==delete_action:
+            self.delete_ref_for_selected()
+
+    def get_selected_ref_rows(self):
+        rows=sorted({i.row() for i in self.ref_table.selectionModel().selectedRows()}) if self.ref_table.selectionModel() else []
+        if not rows and self.ref_table.currentRow()>=0:
+            rows=[self.ref_table.currentRow()]
+        return rows
+
+    def get_selected_ref_voice_ids(self):
+        voice_ids=[]
+        for row in self.get_selected_ref_rows():
+            item=self.ref_table.item(row,0)
+            if item:
+                vid=item.text().strip()
+                if vid and vid not in voice_ids:
+                    voice_ids.append(vid)
+        return voice_ids
+
     def delete_ref_for_selected(self):
         if self.ref_table.rowCount()==0:
             QMessageBox.warning(self,'提示','请先导入 Excel'); return
-        row=self.ref_table.currentRow()
-        if row<0:
-            QMessageBox.warning(self,'提示','请在参考音色管理页选择一个 VoiceID'); return
-        vid_item=self.ref_table.item(row,0)
-        if vid_item is None:
-            return
-        vid=vid_item.text().strip()
-        ok=self.cache.clear_one(vid)
+        voice_ids=self.get_selected_ref_voice_ids()
+        if not voice_ids:
+            QMessageBox.warning(self,'提示','请在参考音色管理页选择一个或多个 VoiceID'); return
+        if len(voice_ids)>1:
+            reply=QMessageBox.question(self,'确认删除',f'确定删除选中的 {len(voice_ids)} 个参考音色吗？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply!=QMessageBox.Yes:
+                return
+        deleted=[]; missing=[]
+        for vid in voice_ids:
+            ok=self.cache.clear_one(vid)
+            (deleted if ok else missing).append(vid)
         self.refresh_ref_table(); self.refresh_main_ref_status()
-        QMessageBox.information(self,'完成',f'{vid}: {"删除成功" if ok else "未找到参考音色"}')
+        if len(voice_ids)==1:
+            vid=voice_ids[0]
+            QMessageBox.information(self,'完成',f'{vid}: {"删除成功" if deleted else "未找到参考音色"}')
+        else:
+            QMessageBox.information(self,'完成',f'删除成功: {len(deleted)} 个\n未找到参考音色: {len(missing)} 个')
 
     def build_single_generate_df(self):
         voice_id=self.sg_voice_id.text().strip()
@@ -393,7 +440,8 @@ class MainWindow(QMainWindow):
         self.thread.started.connect(self.runner.run); self.runner.row_status.connect(self.on_row); self.runner.progress.connect(self.on_prog); self.runner.current.connect(lambda v,s,o: self.lb_cur.setText(f'当前: {v} / {s}\n{o}')); self.runner.finished.connect(self.on_finish); self.thread.start()
 
     def on_row(self, r, st, msg):
-        self.table_model.update_cell(r,'状态',st)
+        if self.table_model is not None:
+            self.table_model.update_cell(r,'状态',st)
         if msg: self.append_log(f'Row {r+1} {st}: {msg}')
 
     def on_prog(self, d, t): self.pb.setMaximum(max(t,1)); self.pb.setValue(d); self.pb2.setMaximum(1); self.pb2.setValue(1)
@@ -402,4 +450,9 @@ class MainWindow(QMainWindow):
         self.bs.setEnabled(True)
         self.lb_done.setText(f"已完成: {s.get('done',0)}"); self.lb_skip.setText(f"跳过: {s.get('skipped',0)}"); self.lb_fail.setText(f"失败: {s.get('failed',0)}")
         QMessageBox.information(self,'任务完成',f"总数:{s.get('total')}\n完成:{s.get('done')}\n失败:{s.get('failed')}\n报告:{s.get('report_path')}")
+        reply=QMessageBox.question(self,'清除缓存','生成完成，是否清除 VoiceID 参考音色缓存？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply==QMessageBox.Yes:
+            count=self.cache.clear_all()
+            self.refresh_ref_table(); self.refresh_main_ref_status()
+            QMessageBox.information(self,'完成',f'已清理 {count} 个缓存')
         if self.thread: self.thread.quit(); self.thread.wait(3000)
