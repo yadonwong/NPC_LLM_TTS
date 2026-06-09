@@ -46,6 +46,7 @@ class BatchRunner(QObject):
     progress = Signal(int, int)
     current = Signal(str, str, str)
     finished = Signal(dict)
+    finished_single = Signal(dict, list)
     log = Signal(str)
 
     @staticmethod
@@ -259,7 +260,9 @@ class BatchRunner(QObject):
             "failed": sum(1 for r in results if r.status == "Failed"),
             "report_path": str(report_path),
         }
+        generated_paths = [r.output_path for r in results if r.status.startswith("Done") and r.output_path]
         self.finished.emit(summary)
+        self.finished_single.emit(summary, generated_paths)
 
     def _write_report(self, results: List[BatchRowResult]) -> Path:
         out = Path(self.config.output_dir)

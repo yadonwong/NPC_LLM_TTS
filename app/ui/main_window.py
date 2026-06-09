@@ -1,8 +1,10 @@
 import os
+import shutil
 from pathlib import Path
 import pandas as pd
-from PySide6.QtCore import Qt, QThread, QAbstractTableModel, QSortFilterProxyModel
+from PySide6.QtCore import Qt, QThread, QAbstractTableModel, QSortFilterProxyModel, QUrl
 from PySide6.QtGui import QAction
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtWidgets import *
 
 from app.core.config import AppConfig, save_settings
@@ -26,6 +28,220 @@ class PandasModel(QAbstractTableModel):
     def update_cell(self, r, c, v):
         if c in self.df.columns and 0<=r<len(self.df):
             k=self.df.columns.get_loc(c); self.df.iat[r,k]=v; self.dataChanged.emit(self.index(r,k), self.index(r,k))
+
+
+class AudioPreviewDialog(QDialog):
+    def __init__(self, audio_files, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('音频预览')
+        self.resize(700, 500)
+        self.audio_files = audio_files
+        self.current_playing = None
+        self.has_unsaved_changes = False
+        
+        self.player = QMediaPlayer()
+        self.audio_output = QAudioOutput()
+        self.player.setAudioOutput(self.audio_output)
+        self.player.playbackStateChanged.connect(self.on_playback_state_changed)
+        
+        layout = QVBoxLayout(self)
+        
+        info_label = QLabel(f'生成了 {len(audio_files)} 个音频文件')
+        info_label.setStyleSheet('font-weight: bold; font-size: 14px; padding: 8px;')
+        layout.addWidget(info_label)
+        
+        self.list_widget = QListWidget()
+        self.checkboxes = []
+        for path in audio_files:
+            item = QListWidgetItem()
+            self.list_widget.addItem(item)
+            
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(4, 2, 4, 2)
+            
+            checkbox = QCheckBox()
+            checkbox.setProperty('file_path', path)
+            self.checkboxes.append(checkbox)
+            
+            file_label = QLabel(str(Path(path).name))
+            file_label.setToolTip(str(path))
+            
+            play_btn = QPushButton('播放')
+            play_btn.setMaximumWidth(60)
+            play_btn.clicked.connect(lambda checked=False, p=path, btn=play_btn: self.play_audio(p, btn))
+            play_btn.setProperty('file_path', path)
+            
+            row_layout.addWidget(checkbox)
+            row_layout.addWidget(file_label, 1)
+            row_layout.addWidget(play_btn)
+            
+            item.setSizeHint(row_widget.sizeHint())
+            self.list_widget.setItemWidget(item, row_widget)
+        
+        layout.addWidget(self.list_widget)
+        
+        controls_layout = QHBoxLayout()
+        self.play_pause_btn = QPushButton('播放')
+        self.play_pause_btn.clicked.connect(self.toggle_play_pause)
+        self.play_pause_btn.setEnabled(False)
+        
+        self.stop_btn = QPushButton('停止')
+        self.stop_btn.clicked.connect(self.stop_playback)
+        self.stop_btn.setEnabled(False)
+        
+        self.current_file_label = QLabel('未选择文件')
+        self.current_file_label.setStyleSheet('color: #666; font-style: italic;')
+        
+        controls_layout.addWidget(self.play_pause_btn)
+        controls_layout.addWidget(self.stop_btn)
+        controls_layout.addWidget(self.current_file_label, 1)
+        layout.addLayout(controls_layout)
+        
+        button_layout = QHBoxLayout()
+        
+        select_all_btn = QPushButton('全选')
+        select_all_btn.clicked.connect(self.select_all)
+        
+        deselect_all_btn = QPushButton('取消全选')
+        deselect_all_btn.clicked.connect(self.deselect_all)
+        
+        self.download_btn = QPushButton('批量下载选中文件')
+        self.download_btn.clicked.connect(self.batch_download)
+        self.download_btn.setStyleSheet('font-weight: bold; background-color: #4CAF50; color: white; padding: 6px;')
+        
+        close_btn = QPushButton('关闭')
+        close_btn.clicked.connect(self.close)
+        
+        button_layout.addWidget(select_all_btn)
+        button_layout.addWidget(deselect_all_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(self.download_btn)
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+    
+    def play_audio(self, file_path, button):
+        if self.current_playing == file_path and self.player.playbackState() == QMediaPlayer.PlayingState:
+            self.player.pause()
+            button.setText('播放')
+        else:
+            self.player.setSource(QUrl.fromLocalFile(file_path))
+            self.player.play()
+            self.current_playing = file_path
+            button.setText('暂停')
+            self.current_file_label.setText(f'正在播放: {Path(file_path).name}')
+            self.play_pause_btn.setEnabled(True)
+            self.stop_btn.setEnabled(True)
+            
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                widget = self.list_widget.itemWidget(item)
+                if widget:
+                    btns = widget.findChildren(QPushButton)
+                    for btn in btns:
+                        if btn.property('file_path') != file_path:
+                            btn.setText('播放')
+    
+    def toggle_play_pause(self):
+        if self.player.playbackState() == QMediaPlayer.PlayingState:
+            self.player.pause()
+            self.play_pause_btn.setText('播放')
+        else:
+            self.player.play()
+            self.play_pause_btn.setText('暂停')
+    
+    def stop_playback(self):
+        self.player.stop()
+        self.current_playing = None
+        self.current_file_label.setText('未选择文件')
+        self.play_pause_btn.setText('播放')
+        self.play_pause_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
+        
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            widget = self.list_widget.itemWidget(item)
+            if widget:
+                btns = widget.findChildren(QPushButton)
+                for btn in btns:
+                    btn.setText('播放')
+    
+    def on_playback_state_changed(self, state):
+        if state == QMediaPlayer.StoppedState:
+            self.play_pause_btn.setText('播放')
+            if self.current_playing:
+                for i in range(self.list_widget.count()):
+                    item = self.list_widget.item(i)
+                    widget = self.list_widget.itemWidget(item)
+                    if widget:
+                        btns = widget.findChildren(QPushButton)
+                        for btn in btns:
+                            if btn.property('file_path') == self.current_playing:
+                                btn.setText('播放')
+    
+    def select_all(self):
+        for cb in self.checkboxes:
+            cb.setChecked(True)
+    
+    def deselect_all(self):
+        for cb in self.checkboxes:
+            cb.setChecked(False)
+    
+    def batch_download(self):
+        selected_files = [cb.property('file_path') for cb in self.checkboxes if cb.isChecked()]
+        if not selected_files:
+            QMessageBox.warning(self, '提示', '请至少选择一个文件')
+            return
+        
+        dest_dir = QFileDialog.getExistingDirectory(self, '选择下载目录')
+        if not dest_dir:
+            return
+        
+        success_count = 0
+        failed_files = []
+        
+        for file_path in selected_files:
+            try:
+                src = Path(file_path)
+                if src.exists():
+                    dest = Path(dest_dir) / src.name
+                    counter = 1
+                    while dest.exists():
+                        dest = Path(dest_dir) / f'{src.stem}_({counter}){src.suffix}'
+                        counter += 1
+                    shutil.copy2(src, dest)
+                    success_count += 1
+                else:
+                    failed_files.append(str(src.name))
+            except Exception as e:
+                failed_files.append(f'{src.name}: {str(e)}')
+        
+        self.has_unsaved_changes = False
+        
+        msg = f'成功下载 {success_count} 个文件到:\n{dest_dir}'
+        if failed_files:
+            msg += f'\n\n失败 {len(failed_files)} 个文件:\n' + '\n'.join(failed_files[:5])
+            if len(failed_files) > 5:
+                msg += f'\n... 还有 {len(failed_files) - 5} 个'
+        
+        QMessageBox.information(self, '下载完成', msg)
+    
+    def closeEvent(self, event):
+        if self.audio_files:
+            reply = QMessageBox.question(
+                self,
+                '确认关闭',
+                '关闭后将无法再预览这些音频文件，是否确认关闭？',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.player.stop()
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
 
 
 class MainWindow(QMainWindow):
@@ -436,8 +652,9 @@ class MainWindow(QMainWindow):
         self.append_log('步骤 3/3: 模型就绪，开始批处理...')
         self.pb2.setRange(0,1); self.pb2.setValue(1)
 
+        self._is_single_tab_run = use_single_tab
         self.thread=QThread(self); self.runner=BatchRunner(run_df,self.config,model_manager,self.cache,self.logger); self.runner.moveToThread(self.thread)
-        self.thread.started.connect(self.runner.run); self.runner.row_status.connect(self.on_row); self.runner.progress.connect(self.on_prog); self.runner.current.connect(lambda v,s,o: self.lb_cur.setText(f'当前: {v} / {s}\n{o}')); self.runner.finished.connect(self.on_finish); self.thread.start()
+        self.thread.started.connect(self.runner.run); self.runner.row_status.connect(self.on_row); self.runner.progress.connect(self.on_prog); self.runner.current.connect(lambda v,s,o: self.lb_cur.setText(f'当前: {v} / {s}\n{o}')); self.runner.finished.connect(self.on_finish); self.runner.finished_single.connect(self.on_finish_single); self.thread.start()
 
     def on_row(self, r, st, msg):
         if self.table_model is not None:
@@ -449,10 +666,20 @@ class MainWindow(QMainWindow):
     def on_finish(self, s):
         self.bs.setEnabled(True)
         self.lb_done.setText(f"已完成: {s.get('done',0)}"); self.lb_skip.setText(f"跳过: {s.get('skipped',0)}"); self.lb_fail.setText(f"失败: {s.get('failed',0)}")
-        QMessageBox.information(self,'任务完成',f"总数:{s.get('total')}\n完成:{s.get('done')}\n失败:{s.get('failed')}\n报告:{s.get('report_path')}")
-        reply=QMessageBox.question(self,'清除缓存','生成完成，是否清除 VoiceID 参考音色缓存？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply==QMessageBox.Yes:
-            count=self.cache.clear_all()
-            self.refresh_ref_table(); self.refresh_main_ref_status()
-            QMessageBox.information(self,'完成',f'已清理 {count} 个缓存')
+        if not getattr(self, '_is_single_tab_run', False):
+            QMessageBox.information(self,'任务完成',f"总数:{s.get('total')}\n完成:{s.get('done')}\n失败:{s.get('failed')}\n报告:{s.get('report_path')}")
+            reply=QMessageBox.question(self,'清除缓存','生成完成，是否清除 VoiceID 参考音色缓存？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply==QMessageBox.Yes:
+                count=self.cache.clear_all()
+                self.refresh_ref_table(); self.refresh_main_ref_status()
+                QMessageBox.information(self,'完成',f'已清理 {count} 个缓存')
         if self.thread: self.thread.quit(); self.thread.wait(3000)
+
+    def on_finish_single(self, s, generated_paths):
+        if not getattr(self, '_is_single_tab_run', False):
+            return
+        if generated_paths:
+            dialog = AudioPreviewDialog(generated_paths, self)
+            dialog.exec()
+        else:
+            QMessageBox.warning(self, '提示', f"未生成任何音频文件\n总数:{s.get('total')}\n完成:{s.get('done')}\n失败:{s.get('failed')}")
