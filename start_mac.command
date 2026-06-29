@@ -21,7 +21,7 @@ if [ -z "$PY_BIN" ]; then
   exit 1
 fi
 
-# 1) 首次运行才执行 bootstrap，已有 .venv 时不联网安装/下载依赖
+# 1) 首次运行时执行完整 bootstrap（创建 venv、克隆第三方仓库等）
 if [ ! -x "$VENV_PY" ]; then
   "$PY_BIN" "$DIR/bootstrap.py"
 fi
@@ -31,5 +31,8 @@ if [ ! -x "$VENV_PY" ]; then
   osascript -e 'display dialog "未找到 .venv Python，可尝试手动运行：python bootstrap.py" buttons {"OK"} default button "OK" with icon stop'
   exit 1
 fi
+
+# 3) 每次启动都同步 requirements.txt，确保新增依赖（如 websockets）自动安装
+"$DIR/.venv/bin/pip" install -q -r "$DIR/requirements.txt"
 
 "$VENV_PY" "$DIR/run_dev.py"
