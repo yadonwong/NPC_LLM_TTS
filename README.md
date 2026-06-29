@@ -10,7 +10,7 @@
 
 - 批量读取 Excel 并生成语音（CN/EN）
 - 支持单句生成，无需 Excel 也可快速测试台词，生成后自动弹出音频预览窗口
-- 支持模型选择：`VoxCPM2` / `IndexTTS`
+- 支持四种 TTS 引擎：`VoxCPM2` / `IndexTTS-2` / `Seed TTS 2.0（火山引擎云端）` / `dots.tts（小红书）`
 - 同 `VoiceID` 复用参考音色，保持一致音色
 - 支持手动导入参考音频（`ref/`）
 - 参考音色列表支持右键删除、整行选择与 Shift 多选
@@ -27,6 +27,7 @@
 - Python: `>=3.10, <3.13`（推荐 3.11）
 - macOS / Windows
 - 网络可访问 HuggingFace（失败时自动尝试 ModelScope）
+- macOS 使用 dots.tts 引擎时需要 Homebrew 安装 `openfst`：`brew install openfst`
 
 > 注意：Python 3.13 目前不兼容本项目依赖组合。
 
@@ -59,126 +60,138 @@ python run_dev.py
 
 1. 创建 `.venv`
 2. 安装依赖
-3. 克隆 `third_party/VoxCPM`
-4. 安装 `voxcpm` 包
-
-### 模型下载与存放位置
-
-`models/` 目录不随 GitHub 仓库上传，请在首次运行前或运行过程中按需下载模型，并放到以下固定位置。
-
-#### VoxCPM2
-
-- 下载链接：
-  - HuggingFace: [openbmb/VoxCPM2](https://huggingface.co/openbmb/VoxCPM2)
-  - ModelScope: [OpenBMB/VoxCPM2](https://modelscope.cn/models/OpenBMB/VoxCPM2)
-- 存放位置：
-
-```text
-NPC_LLM_TTS/
-└── models/
-    └── VoxCPM2/
-        ├── model.safetensors
-        ├── audiovae.pth
-        └── ...
-```
-
-程序在使用 `VoxCPM2` 引擎时会优先检查 `models/VoxCPM2/`。如果模型未就绪，会尝试自动从 HuggingFace 下载，失败后尝试 ModelScope。
-
-#### IndexTTS-2
-
-- 下载链接：
-  - HuggingFace: [IndexTeam/IndexTTS-2](https://huggingface.co/IndexTeam/IndexTTS-2)
-- 存放位置：
-
-```text
-NPC_LLM_TTS/
-└── models/
-    └── IndexTTS-2/
-        ├── config.yaml
-        ├── gpt.pth
-        ├── s2mel.pth
-        └── qwen0.6bemo4-merge/
-            └── model.safetensors
-```
-
-#### IndexTTS-2 依赖模型
-
-`IndexTTS-2` 还需要以下依赖模型：
-
-- MaskGCT semantic codec
-  - 下载链接：[amphion/MaskGCT](https://huggingface.co/amphion/MaskGCT)
-  - 存放位置：
-
-```text
-NPC_LLM_TTS/
-└── models/
-    └── MaskGCT/
-        └── semantic_codec/
-            └── model.safetensors
-```
-
-- BigVGAN vocoder
-  - 下载链接：[nvidia/bigvgan_v2_22khz_80band_256x](https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x)
-  - 存放位置：
-
-```text
-NPC_LLM_TTS/
-└── models/
-    └── bigvgan_v2_22khz_80band_256x/
-        ├── config.json
-        ├── bigvgan_generator.pt
-        └── ...
-```
-
-> 注意：`models/` 已加入 `.gitignore`，不会上传到 GitHub。换电脑或重新克隆项目后，需要重新下载并放回上述目录。
-
-### 离线运行
-
-程序支持在无网络环境下运行，但需要提前在有网络时完成以下准备：
-
-1. 至少运行一次：
-
-```bash
-python bootstrap.py
-```
-
-这一步会创建 `.venv`、安装 Python 依赖，并克隆/安装 `third_party/VoxCPM` 与 `third_party/index-tts`。
-
-2. 按“模型下载与存放位置”章节，把需要的模型完整放入 `models/`：
-   - `models/VoxCPM2/`
-   - `models/IndexTTS-2/`
-   - `models/MaskGCT/semantic_codec/`
-   - `models/bigvgan_v2_22khz_80band_256x/`
-
-3. 无网络启动时，直接运行：
-
-```bash
-python run_dev.py
-```
-
-或双击：
-
-- macOS: `start_mac.command`
-- Windows: `start_windows.bat`
-
-启动脚本在检测到 `.venv` 已存在时，会直接启动程序，不再重复执行联网安装。
-
-4. 在界面左侧“生成设置”中勾选：
-
-```text
-离线模式（不联网下载模型）
-```
-
-勾选后：
-
-- `VoxCPM2` 只检查本地 `models/VoxCPM2/`，不会尝试联网下载。
-- `IndexTTS` 只检查本地模型和依赖缓存，缺文件时会弹窗提示具体路径。
-
-> 如果是第一次在新电脑运行，且还没有 `.venv` 或 `third_party/`，仍然需要先联网执行 `bootstrap.py`，或从已配置好的电脑完整拷贝 `.venv/`、`third_party/` 和 `models/`。
+3. 克隆并安装 `third_party/VoxCPM`
+4. 克隆并安装 `third_party/index-tts`
+5. 安装 `dots.tts` 包（从 GitHub，macOS 需要 Homebrew `openfst`）
 
 ---
 
-## 4. Excel 格式要求
+## 4. TTS 引擎说明
+
+本项目支持四种引擎，在左侧「生成设置」的「TTS引擎」下拉里切换。
+
+| 引擎 key | 名称 | 类型 | 需要参考音频 | 凭据 |
+|---|---|---|---|---|
+| `voxcpm` | VoxCPM2 | 本地 | 可选（自动缓存首帧） | 无 |
+| `indextts` | IndexTTS-2 | 本地 | **必须** | 无 |
+| `seed-tts` | Seed TTS 2.0 | 云端 API | 可选 | 火山引擎 API Key |
+| `dots-tts` | dots.tts | 本地 | **必须** | 无 |
+
+### VoxCPM2
+
+无需参考音频即可生成，第一次生成会自动将输出保存为该 VoiceID 的参考音色供后续复用。
+
+### IndexTTS-2 / dots.tts
+
+纯零样本音色克隆模型，**必须提供参考音频**才能推理。批处理时请先通过「参考音色管理」页为每个 VoiceID 导入参考音频，或在 Excel 中增加 `REFERENCE_WAV_PATH` 列。
+
+### Seed TTS 2.0（火山引擎）
+
+云端 API，需要在左侧「Seed TTS 2.0 设置」面板填写凭据：
+
+- **API Key Secret**（新版控制台推荐）
+- 或旧版 **API Key ID** + **Access Key ID**
+
+音色由 `默认音色 ID` 字段控制（默认 `zh_female_shuangkuaisisi_moon_bigtts`），完整音色列表见[豆包音色文档](https://www.volcengine.com/docs/6561/1257544)。
+
+### dots.tts（小红书）
+
+提供三个变体，在「dots.tts 设置」面板的「模型变体」里选择：
+
+| 变体 | 特点 |
+|---|---|
+| `dots.tts-soar` | 音色相似度最高，推荐默认 |
+| `dots.tts-base` | 基础预训练版 |
+| `dots.tts-mf` | MeanFlow 蒸馏版，NFE=4，速度最快 |
+
+---
+
+## 5. 模型下载与存放位置
+
+`models/` 目录不随 GitHub 仓库上传，按需下载后放到以下固定位置。
+
+### VoxCPM2
+
+- HuggingFace: [openbmb/VoxCPM2](https://huggingface.co/openbmb/VoxCPM2)
+- ModelScope: [OpenBMB/VoxCPM2](https://modelscope.cn/models/OpenBMB/VoxCPM2)
+
+```text
+models/
+└── VoxCPM2/
+    ├── model.safetensors
+    ├── audiovae.pth
+    └── ...
+```
+
+### IndexTTS-2
+
+- HuggingFace: [IndexTeam/IndexTTS-2](https://huggingface.co/IndexTeam/IndexTTS-2)
+- ModelScope: [IndexTeam/IndexTTS-2](https://modelscope.cn/models/IndexTeam/IndexTTS-2)
+
+```text
+models/
+└── IndexTTS-2/
+    ├── config.yaml
+    ├── gpt.pth
+    ├── s2mel.pth
+    └── qwen0.6bemo4-merge/
+        └── model.safetensors
+```
+
+IndexTTS-2 还需要两个依赖模型：
+
+**MaskGCT semantic codec**
+- HuggingFace: [amphion/MaskGCT](https://huggingface.co/amphion/MaskGCT)
+
+```text
+models/
+└── MaskGCT/
+    └── semantic_codec/
+        └── model.safetensors
+```
+
+**BigVGAN vocoder**
+- HuggingFace: [nvidia/bigvgan_v2_22khz_80band_256x](https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x)
+
+```text
+models/
+└── bigvgan_v2_22khz_80band_256x/
+    ├── config.json
+    ├── bigvgan_generator.pt
+    └── ...
+```
+
+### dots.tts
+
+- HuggingFace: [rednote-hilab/dots.tts-soar](https://huggingface.co/rednote-hilab/dots.tts-soar)
+- ModelScope: [rednote-hilab/dots.tts-soar](https://modelscope.cn/models/rednote-hilab/dots.tts-soar)
+
+命令行下载（推荐）：
+
+```bash
+# HuggingFace
+huggingface-cli download rednote-hilab/dots.tts-soar --local-dir models/dots.tts-soar
+
+# ModelScope（国内网络推荐）
+.venv/bin/modelscope download --model rednote-hilab/dots.tts-soar --local_dir models/dots.tts-soar
+```
+
+```text
+models/
+└── dots.tts-soar/      ← 文件夹名须与变体名一致
+    ├── config.json
+    ├── model.safetensors
+    ├── tokenizer.json
+    └── ...
+```
+
+UI 里「模型路径」留空，程序自动检测 `models/<变体名>/`；若首次运行且目录不存在，会从 HuggingFace 自动下载（约 4GB）。
+
+> `models/` 已加入 `.gitignore`，不会上传到 GitHub。
+
+---
+
+## 6. Excel 格式要求
 
 ### 最小必需列
 
@@ -189,31 +202,62 @@ python run_dev.py
 
 ### 可选列
 
-- `TOTTS_EN`（没有则自动跳过 EN 导出）
-- `细分区域`（没有则不创建该层目录）
-- `Control Instruction`（或 `控制指令` 等别名）
-- 其他业务列（Character/Age/Gender...）均非必需
-
-### 预览界面显示列
-
-- `VoiceID`
-- `区域`
-- `TOTTS_CN`
-- `TOTTS_EN`
-- `状态`
-- `参考状态`
+| 列名 | 说明 |
+|---|---|
+| `TOTTS_EN` | 英文台词，无则跳过 EN 导出 |
+| `细分区域` | 额外目录层级，无则省略 |
+| `Control Instruction` | 控制指令（见下方说明），也支持 `控制指令` 等别名 |
+| `REFERENCE_WAV_PATH` | 指定本行使用的参考音频绝对路径 |
 
 ---
 
-## 5. 生成流程
+## 7. 控制指令（Control Instruction）
+
+在 Excel 的 `Control Instruction` 列，或 TOTTS 文本开头用 `(指令)` 括号格式传入。
+
+支持的指令 key（不区分大小写）：
+
+| Key | 含义 |
+|---|---|
+| `happy` | 开心愉快 |
+| `sad` | 悲伤难过 |
+| `angry` | 生气愤怒 |
+| `fearful` | 恐惧害怕 |
+| `surprised` | 惊讶惊喜 |
+| `disgusted` | 厌恶嫌弃 |
+| `calm` | 平静淡然 |
+| `excited` | 兴奋激动 |
+| `tender` | 温柔体贴 |
+| `serious` | 严肃认真 |
+| `confident` | 自信骄傲 |
+| `depressed` | 沮丧低落 |
+| `slow` | 慢语速 |
+| `fast` | 快语速 |
+| `very_slow` | 非常慢 |
+| `very_fast` | 非常快 |
+| `quiet` | 小音量 |
+| `loud` | 大音量 |
+| `whisper` | 耳语 |
+| `storytelling` | 讲故事语气 |
+
+各引擎的翻译方式：
+
+| 引擎 | 处理方式 |
+|---|---|
+| VoxCPM / IndexTTS | 括号前缀直接拼入文本：`(happy)你好` |
+| Seed TTS 2.0 | 翻译为自然语言，放入 `context_texts` 字段 |
+| dots.tts | 翻译为自然语言前缀，切换 `instruction_tts` 模板：`请用开心愉快的语气说：你好` |
+
+不在字典中的 key 会直接透传为自然语言指令。
+
+---
+
+## 8. 生成流程
 
 1. 选择 Excel
 2. 程序自动识别可用 sheet（若多个会弹窗选择）
 3. 点击 `Start`
-4. UI 显示模型准备阶段：
-   - 检查/下载模型
-   - 加载模型
-   - 进入批处理
+4. UI 显示模型准备阶段（下载/加载/验证凭据）
 5. 按行串行生成（避免显存冲突）
 6. 每条生成后立刻写盘
 7. 任务结束后弹出完成统计
@@ -221,150 +265,74 @@ python run_dev.py
 
 ---
 
-## 6. 单句生成用法
+## 9. 单句生成
 
-当你不想走 Excel 批量流程时，可在界面中使用 `单句生成` 标签页。该页面采用左对齐表单布局，适合快速填写与核对台词参数。
+切换到「单句生成」标签页，填写字段后点击 `Start`。
 
-### 操作步骤
-
-1. 切换到 `单句生成`
-2. 填写以下字段：
-   - `VoiceID`
-   - `台本ID`
-   - `区域`
-   - `细分区域`（可选）
-   - `音色参考文件`（可选，可选择 wav/flac/mp3/m4a）
-   - `控制指令`（可选）
-   - `TOTTS_CN`（必填）
-   - `TOTTS_EN`（可选）
-   - `生成条数`
-3. 点击右侧 `Start`
-
-### 生成规则
-
-- `TOTTS_CN` 必填；`TOTTS_EN` 为空时仅导出 CN
-- 当 `生成条数 > 1` 时，系统会自动生成台本ID后缀：
-  - 例如台本ID填 `A001`，数量为 3，则实际输出为：
-    - `A001_001`
-    - `A001_002`
-    - `A001_003`
-- 单句生成同样复用当前“生成设置/音频设置/覆盖策略/音色缓存”
-- 如果选择了 `音色参考文件`，本次单句生成会优先使用该文件作为参考音色
-- 如果未选择参考文件，则按当前 VoiceID 的缓存和复用设置自动处理
-
-### 音频预览窗口（单句生成专属）
-
-单句生成完成后会自动弹出音频预览窗口，提供以下功能：
-
-- **实时预览**：显示所有生成的音频文件列表
-- **播放控制**：每个音频文件有独立的播放/暂停按钮，同时提供全局播放控制
-- **批量选择**：每条音频旁边有选择框，支持全选/取消全选快捷操作
-- **批量下载**：选择需要的音频后，点击「批量下载选中文件」可一次性导出到指定目录
-- **关闭提醒**：关闭窗口时会弹出确认提示，避免误关闭丢失预览
-
-> 批量生成（Excel 模式）不会显示预览窗口，完成后直接显示统计报告。
+- `TOTTS_CN` 必填，`TOTTS_EN` 为空时仅导出 CN
+- `生成条数 > 1` 时自动追加 `_001 / _002 / ...` 后缀
+- 可在「音色参考文件」直接选取本次使用的参考音频
+- 完成后自动弹出音频预览窗口，支持播放、多选、批量导出
 
 ---
 
-## 7. 输出目录规则（CN/EN）
+## 10. 输出目录规则
 
 输出根目录：`Output/`
 
-### 当存在“细分区域”时
+有「细分区域」时：
+```
+Output/CN/{区域}/{细分区域}/{VoiceID}/{台本ID}.wav
+Output/EN/{区域}/{细分区域}/{VoiceID}/{台本ID}.wav
+```
 
-- `Output/CN/{区域}/{细分区域}/{VoiceID}/{台本ID}.wav`
-- `Output/EN/{区域}/{细分区域}/{VoiceID}/{台本ID}.wav`
-
-### 当“细分区域”为空或不存在时
-
-- `Output/CN/{区域}/{VoiceID}/{台本ID}.wav`
-- `Output/EN/{区域}/{VoiceID}/{台本ID}.wav`
-
-> EN 仅在 `TOTTS_EN` 非空时生成。
+无「细分区域」时：
+```
+Output/CN/{区域}/{VoiceID}/{台本ID}.wav
+Output/EN/{区域}/{VoiceID}/{台本ID}.wav
+```
 
 ---
 
-## 8. VoiceID 音色一致性
+## 11. VoiceID 音色一致性
 
 ### 自动缓存
 
-- 首次成功生成某 `VoiceID` 后，保存参考到：
-  - `VoiceCache/{VoiceID}/reference.wav`
-  - `ref/{VoiceID}.wav`
+首次成功生成某 VoiceID 后，自动保存到：
+- `VoiceCache/{VoiceID}/reference.wav`
+- `ref/{VoiceID}.wav`
 
-### 手动参考导入
+### 手动导入
 
-在 `参考音色管理` 页：
+在「参考音色管理」页选择 VoiceID 后点击「为选中VoiceID导入参考音频」，支持 wav / flac / mp3 / m4a。
 
-1. 选择 VoiceID
-2. 点击“为选中VoiceID导入参考音频”
-3. 文件会缓存到：`ref/{VoiceID}.wav`
+### 参考优先级
 
-也可以在 `单句生成` 页填写 VoiceID 后，点击“为单句 VoiceID 导入参考音频”，快速为当前 VoiceID 设置参考音色。
-
-### 参考音色列表管理
-
-`参考音色管理` 页的表格支持整行选择：
-
-- 单击选择一行
-- 按住 `Shift` 可连续多选
-- 按住 `Ctrl` / `Command` 可追加选择多行
-- 右键选中行可打开菜单并删除选中音色
-- 顶部“删除选中音色”按钮也支持删除多选项
-
-多选删除时会弹出确认框，删除后会自动刷新参考音色列表和 Excel 预览中的参考状态。
-
-### 生成完成后的缓存清理
-
-任务完成后，程序会显示完成统计，并询问是否清除 VoiceID 参考音色缓存：
-
-- 选择“是”：清空 `VoiceCache/` 与 `ref/` 中的参考音色，并刷新界面状态
-- 选择“否”：保留当前参考音色缓存，方便后续继续复用
-
-### 生成时参考优先级
-
-1. `VoiceCache/{VoiceID}/reference.wav`
-2. `ref/{VoiceID}.wav`
+1. `REFERENCE_WAV_PATH` 列指定的文件（Excel 模式）
+2. 单句生成页选择的「音色参考文件」
+3. `VoiceCache/{VoiceID}/reference.wav`
+4. `ref/{VoiceID}.wav`
 
 ---
 
-## 9. 参数说明
+## 12. 音频与生成参数
 
-### `cfg_value`
+| 参数 | 说明 | 默认值 |
+|---|---|---|
+| `cfg_value` | 文本/风格约束强度（VoxCPM） | `2.0` |
+| `inference_timesteps` | 推理步数（VoxCPM / IndexTTS / dots.tts） | `10` |
+| `random_seed` | 随机种子，留空则每次不同 | 空 |
+| `num_steps`（dots.tts） | Flow-matching 采样步数，10~32 | `10` |
+| `guidance_scale`（dots.tts） | CFG 系数 | `1.2` |
+| `speech_rate`（Seed TTS） | 语速，-50~100，0 为标准 | `0` |
 
-- 文本/风格约束强度
-- 越高越“听话”，但可能更硬
-- 推荐：`2.0`（常用范围 `1.5~3.0`）
-
-### `inference_timesteps`
-
-- 推理步数
-- 越高音质通常更稳但更慢
-- 推荐：`10`（常用范围 `8~20`）
-
-### `random_seed`
-
-- 随机种子
-- 固定后更可复现
-- 不填则每次可能略有差异
-
----
-
-## 10. 响度归一化
+### 响度归一化
 
 - 开关：`启用响度归一化`
-- 目标：`target_lufs`（默认 `-18`）
+- 目标：`target_lufs`（默认 `-18 LUFS`）
 - 峰值上限：`true_peak_ceiling`（默认 `-1.0 dBTP`）
 
-归一化失败时：
-
-- 不中断批次
-- 仍保留格式正确的 wav
-- 在状态/日志中标记失败
-
----
-
-## 11. 覆盖策略
+### 覆盖策略
 
 - `skip`：文件存在则跳过（默认）
 - `overwrite`：覆盖旧文件
@@ -372,21 +340,25 @@ python run_dev.py
 
 ---
 
-## 12. 日志与报告
+## 13. 日志与报告
 
-### 运行日志
+- 运行日志：`Logs/run_YYYYMMDD_HHMMSS.log`
+- 结果报告：`Output/generation_report_YYYYMMDD_HHMMSS.csv`
 
-- `Logs/run_YYYYMMDD_HHMMSS.log`
-
-### 结果报告
-
-- `Output/generation_report_YYYYMMDD_HHMMSS.csv`
-
-包含每条任务状态、错误信息、输出路径、LUFS 结果等。
+报告包含每条任务状态、错误信息、输出路径、LUFS 结果等。
 
 ---
 
-## 13. 打包
+## 14. 离线运行
+
+1. 先联网运行一次 `python bootstrap.py`，完成依赖和代码安装
+2. 将所需模型放入 `models/`
+3. 断网启动时勾选「离线模式（不联网下载模型）」
+4. 直接运行 `python run_dev.py` 或双击启动脚本
+
+---
+
+## 15. 打包
 
 ```bash
 python build_app.py
@@ -396,44 +368,72 @@ python build_app.py
 
 ---
 
-## 14. 常见问题（FAQ）
+## 16. 常见问题（FAQ）
 
-### Q1: `No module named 'voxcpm'`
-运行一次：
+**Q: `No module named 'voxcpm'`**
+运行 `python bootstrap.py` 重新安装依赖。
 
+**Q: `No module named 'indextts'`**
+运行 `python bootstrap.py`，会自动克隆并安装 `third_party/index-tts`。
+
+**Q: `Descriptors cannot be created directly` / protobuf 报错**
+已固定 `protobuf==3.19.6`。若仍报错，手动执行：
 ```bash
-python bootstrap.py
+.venv/bin/pip install "protobuf==3.19.6"
 ```
 
-### Q2: Python 版本不兼容
-请使用 Python 3.10~3.12（推荐 3.11）。
+**Q: dots.tts 安装时 `pynini` 编译失败（macOS）**
+需要先安装 OpenFst：
+```bash
+brew install openfst
+```
+然后重新运行 `python bootstrap.py`。
 
-### Q3: 点击 Start 后像卡死
-正常。模型准备阶段会显示进度提示与日志（下载/加载）。
+**Q: `IndexTTS 需要参考音频` / `dots.tts 需要参考音频`**
+IndexTTS 和 dots.tts 是零样本克隆模型，必须提供参考音频。通过「参考音色管理」页为 VoiceID 导入参考音频，或在 Excel 里加 `REFERENCE_WAV_PATH` 列。
 
-### Q4: 报错 `unexpected keyword argument 'control_instruction'`
-该问题已修复：当前版本不再单独传 control 参数，使用整段文本生成。
+**Q: Seed TTS 2.0 报 HTTP 400**
+检查「Seed TTS 2.0 设置」面板中的凭据是否正确填写。
 
-### Q5: “未找到包含必需列的 sheet”
-检查是否至少包含：
+**Q: Python 版本不兼容**
+请使用 Python 3.10~3.12（推荐 3.11）。`bootstrap.py` 需要用项目 venv 对应的 Python 版本运行，不能用系统 3.13。
 
-- `VoiceID`
-- `区域`
-- `台本ID`
-- `TOTTS_CN`（或 `TOTTS`）
+**Q: 点击 Start 后界面像卡死**
+正常现象。模型准备阶段（下载/加载）耗时较长，日志区会持续输出进度。
+
+**Q: "未找到包含必需列的 sheet"**
+Excel 至少需要包含：`VoiceID`、`区域`、`台本ID`、`TOTTS_CN`（或 `TOTTS`）。
 
 ---
 
-## 15. 项目结构（核心）
+## 17. 项目结构（核心）
 
 ```text
 NPC_LLM_TTS/
   app/
     main.py
     core/
+      config.py
+      tts_batch_runner.py
+      voxcpm_manager.py
+      index_tts_manager.py
+      seed_tts_manager.py
+      dots_tts_manager.py
+      voice_cache.py
+      audio_processor.py
+      ...
     ui/
-  models/VoxCPM2/
-  third_party/VoxCPM/
+      main_window.py
+      ...
+  models/
+    VoxCPM2/
+    IndexTTS-2/
+    MaskGCT/
+    bigvgan_v2_22khz_80band_256x/
+    dots.tts-soar/
+  third_party/
+    VoxCPM/
+    index-tts/
   Output/
   VoiceCache/
   ref/
@@ -442,88 +442,61 @@ NPC_LLM_TTS/
   bootstrap.py
   run_dev.py
   build_app.py
+  requirements.txt
   start_mac.command
   start_windows.bat
 ```
 
 ---
 
-## 16. 开源项目与许可证说明
+## 18. 开源项目与许可证说明
 
 本项目是一个桌面端工作流封装工具，调用和集成了若干第三方开源项目、模型与 Python 依赖。各第三方项目的版权、商标、模型权重和许可证归其原作者/权利方所有。使用、分发或商用本项目时，请同时遵守对应第三方项目和模型的许可证、模型卡与使用限制。
 
 > 本节仅用于归属说明和合规提示，不构成法律意见。许可证版本和使用限制可能随上游项目更新而变化，请以官方仓库、模型卡和随包 `LICENSE` 文件为准。
 
-### 16.1 主要 TTS 引擎 / 模型
+### 18.1 TTS 引擎 / 模型
 
 #### VoxCPM / VoxCPM2
+- 上游作者：`OpenBMB`
+- 代码仓库：[github.com/OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM)
+- 许可证：`Apache-2.0`
 
-- 项目名称：`VoxCPM`
-- 上游作者/组织：`OpenBMB`
-- 官方代码仓库：[https://github.com/OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM)
-- 模型页面：
-  - HuggingFace: [openbmb/VoxCPM2](https://huggingface.co/openbmb/VoxCPM2)
-  - ModelScope: [OpenBMB/VoxCPM2](https://modelscope.cn/models/OpenBMB/VoxCPM2)
-- 本项目中的用途：作为 `voxcpm` TTS 引擎，用于文本转语音、参考音色生成与复用。
-- 本项目中的位置：
-  - 代码：`third_party/VoxCPM/`（由 `bootstrap.py` 克隆并以 editable 方式安装）
-  - 模型：`models/VoxCPM2/`（不随 GitHub 仓库上传）
-- 许可证：`Apache-2.0`。本地克隆后可查看：`third_party/VoxCPM/LICENSE`。
+#### IndexTTS / IndexTTS-2
+- 上游作者：`Bilibili IndexTTS Team`
+- 代码仓库：[github.com/index-tts/index-tts](https://github.com/index-tts/index-tts)
+- 许可证：`bilibili Model Use License Agreement`（含商用限制，详见官方协议）
 
-#### IndexTTS / IndexTTS2
+#### dots.tts
+- 上游作者：`rednote-hilab`（小红书）
+- 代码仓库：[github.com/rednote-hilab/dots.tts](https://github.com/rednote-hilab/dots.tts)
+- 模型页面：[huggingface.co/rednote-hilab/dots.tts-soar](https://huggingface.co/rednote-hilab/dots.tts-soar)
+- 许可证：`Apache-2.0`
 
-- 项目名称：`IndexTTS2`
-- 上游作者/组织：`Bilibili IndexTTS Team`
-- 官方代码仓库：[https://github.com/index-tts/index-tts](https://github.com/index-tts/index-tts)
-- 模型页面：
-  - HuggingFace: [IndexTeam/IndexTTS-2](https://huggingface.co/IndexTeam/IndexTTS-2)
-  - ModelScope: [IndexTeam/IndexTTS-2](https://modelscope.cn/models/IndexTeam/IndexTTS-2)
-- 本项目中的用途：作为 `indextts` TTS 引擎，支持基于参考音频的零样本音色生成。
-- 本项目中的位置：
-  - 代码：`third_party/index-tts/`（由 `bootstrap.py` 克隆并以 editable 方式安装）
-  - 模型：`models/IndexTTS-2/`（不随 GitHub 仓库上传）
-- 许可证/使用协议：`LicenseRef-Bilibili-IndexTTS` / `bilibili Model Use License Agreement`。本地克隆后可查看：`third_party/index-tts/LICENSE`。
-- 特别注意：IndexTTS2 的模型使用协议包含使用限制、合规义务、高风险场景限制、下游分发要求等条款；如需商用或对外分发，请务必阅读并遵守官方协议。
+#### Seed TTS 2.0
+- 上游作者：`ByteDance / 火山引擎`
+- API 文档：[volcengine.com/docs/6561](https://www.volcengine.com/docs/6561)
+- 使用须遵守火山引擎服务协议与内容政策
 
-### 16.2 IndexTTS 相关依赖模型
+### 18.2 IndexTTS 依赖模型
 
 #### MaskGCT semantic codec
-
-- 项目/模型名称：`MaskGCT`
-- 上游项目：`Amphion / MaskGCT`
-- 模型页面：[https://huggingface.co/amphion/MaskGCT](https://huggingface.co/amphion/MaskGCT)
-- 相关代码/说明：[https://github.com/open-mmlab/Amphion](https://github.com/open-mmlab/Amphion)
-- 本项目中的用途：作为 `IndexTTS2` 推理所需的 semantic codec 依赖。
-- 本项目中的位置：`models/MaskGCT/semantic_codec/model.safetensors`（不随 GitHub 仓库上传）
-- 许可证：请以官方 HuggingFace 模型卡、Amphion 仓库和随模型文件提供的许可证说明为准。
+- 上游项目：`Amphion / open-mmlab`
+- 模型页面：[huggingface.co/amphion/MaskGCT](https://huggingface.co/amphion/MaskGCT)
 
 #### BigVGAN vocoder
+- 上游作者：`NVIDIA`
+- 代码仓库：[github.com/NVIDIA/BigVGAN](https://github.com/NVIDIA/BigVGAN)
+- 许可证：`MIT`
 
-- 项目/模型名称：`BigVGAN`
-- 上游作者/组织：`NVIDIA`
-- 官方代码仓库：[https://github.com/NVIDIA/BigVGAN](https://github.com/NVIDIA/BigVGAN)
-- 模型页面：[nvidia/bigvgan_v2_22khz_80band_256x](https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x)
-- 本项目中的用途：作为 `IndexTTS2` 推理所需的 vocoder 依赖。
-- 本项目中的位置：`models/bigvgan_v2_22khz_80band_256x/`（不随 GitHub 仓库上传）
-- 许可证：HuggingFace 模型卡标注为 `MIT`，请以官方模型卡和仓库许可证为准。
+### 18.3 Python 依赖
 
-### 16.3 Python 开源依赖
+详见 `requirements.txt`。主要包括：`PySide6`、`torch`、`torchaudio`、`transformers`、`pandas`、`soundfile`、`librosa`、`pyloudnorm` 等，均归各自作者所有并适用其各自许可证。
 
-本项目还依赖以下 Python 开源库，详见 `requirements.txt`：
+### 18.4 生成内容责任
 
-- UI / 桌面端：`PySide6`
-- 数据处理：`pandas`, `openpyxl`, `numpy`, `scipy`
-- 音频处理：`soundfile`, `librosa`, `pyloudnorm`, `ffmpeg-python`
-- 深度学习 / 推理：`torch`, `torchaudio`, `omegaconf`, `protobuf`
-- 模型下载与托管：`huggingface_hub`, `modelscope`
-- 打包与工具：`pyinstaller`, `gitpython`
+使用本项目时，用户应确保：
 
-这些依赖均归各自作者/组织所有，并适用其各自的开源许可证。打包、分发或商用时，请根据实际发布形式检查这些依赖的许可证兼容性和声明要求。
-
-### 16.4 生成内容与参考音频责任
-
-本项目支持导入参考音频并生成语音。用户应确保：
-
-- 参考音频、Excel 文本、控制指令等输入内容拥有合法使用权；
-- 不使用本项目生成或传播违法、侵权、欺诈、冒充他人或违反第三方模型协议的内容；
-- 若对外发布生成音频，应根据适用法律和平台规则进行必要标识或取得授权。
+- 参考音频、Excel 文本、控制指令等输入内容拥有合法使用权
+- 不使用本项目生成或传播违法、侵权、欺诈、冒充他人或违反第三方模型协议的内容
+- 若对外发布生成音频，应根据适用法律和平台规则进行必要标识或取得授权

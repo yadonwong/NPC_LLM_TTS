@@ -52,6 +52,28 @@ def main():
     # Install IndexTTS package into project venv
     run([pip, 'install', '-e', str(indextts_repo)])
 
+    # Install dots.tts package
+    # pynini (required by WeTextProcessing) needs OpenFst C++ headers.
+    # On macOS with Homebrew: brew install openfst
+    print('>> Installing dots.tts ...')
+    env = os.environ.copy()
+    if platform.system() == 'Darwin':
+        homebrew_prefix = '/opt/homebrew' if Path('/opt/homebrew').exists() else '/usr/local'
+        env['CFLAGS']   = f"-I{homebrew_prefix}/include " + env.get('CFLAGS', '')
+        env['CXXFLAGS'] = f"-I{homebrew_prefix}/include " + env.get('CXXFLAGS', '')
+        env['LDFLAGS']  = f"-L{homebrew_prefix}/lib "    + env.get('LDFLAGS', '')
+
+    # Install without constraint file first to avoid pulling WeTextProcessing
+    # before pynini is ready; then install remaining deps explicitly.
+    subprocess.check_call([pip, 'install', '--no-deps',
+        'git+https://github.com/rednote-hilab/dots.tts.git'], env=env, cwd=ROOT)
+    subprocess.check_call([pip, 'install',
+        'pynini', 'WeTextProcessing',
+        'transformers>=4.57.0', 'loguru', 'langcodes[data]',
+        'lingua-language-detector', 'torchdiffeq',
+        'safetensors>=0.8.0', 'librosa>=0.11.0', 'pydantic>=2.0',
+    ], env=env, cwd=ROOT)
+
     print('Bootstrap complete.')
 
 

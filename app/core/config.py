@@ -26,6 +26,18 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "tts_engine": "voxcpm",
     "index_model_path": str(BASE_DIR / "models" / "IndexTTS-2"),
     "offline_mode": False,
+    # Seed TTS 2.0 (Volcengine) settings
+    "seed_tts_api_key": "",
+    "seed_tts_app_id": "",
+    "seed_tts_access_key": "",
+    "seed_tts_resource_id": "seed-tts-2.0",
+    "seed_tts_speaker": "zh_female_shuangkuaisisi_moon_bigtts",
+    "seed_tts_speech_rate": 0,
+    # dots.tts (rednote-hilab) settings
+    "dots_tts_model_path": "",
+    "dots_tts_variant": "dots.tts-soar",
+    "dots_tts_num_steps": 10,
+    "dots_tts_guidance_scale": 1.2,
 }
 
 @dataclass
@@ -49,6 +61,18 @@ class AppConfig:
     tts_engine: str = "voxcpm"
     index_model_path: str = str(BASE_DIR / "models" / "IndexTTS-2")
     offline_mode: bool = False
+    # Seed TTS 2.0 (Volcengine) settings
+    seed_tts_api_key: str = ""
+    seed_tts_app_id: str = ""
+    seed_tts_access_key: str = ""
+    seed_tts_resource_id: str = "seed-tts-2.0"
+    seed_tts_speaker: str = "zh_female_shuangkuaisisi_moon_bigtts"
+    seed_tts_speech_rate: int = 0
+    # dots.tts (rednote-hilab) settings
+    dots_tts_model_path: str = ""
+    dots_tts_variant: str = "dots.tts-soar"
+    dots_tts_num_steps: int = 10
+    dots_tts_guidance_scale: float = 1.2
 
 
 def load_settings() -> AppConfig:

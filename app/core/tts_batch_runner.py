@@ -83,18 +83,51 @@ class BatchRunner(QObject):
         self.stop_event.set()
         self.pause_event.set()
 
+    def _engine(self) -> str:
+        return getattr(self.config, "tts_engine", "voxcpm")
+
+    def _is_seed_tts(self) -> bool:
+        return self._engine() == "seed-tts"
+
+    def _is_dots_tts(self) -> bool:
+        return self._engine() == "dots-tts"
+
     def _synthesize_one(self, text, used_ref, path, control_instruction=""):
         txt = str(text or "").strip()
         ctrl = str(control_instruction or "").strip()
-        final_text = f"({ctrl}){txt}" if ctrl else txt
 
-        wav, sr = self.tts_model.generate(
-            text=final_text,
-            cfg_value=float(self.config.cfg_value),
-            inference_timesteps=int(self.config.inference_timesteps),
-            reference_wav_path=used_ref if used_ref else None,
-            random_seed=int(self.config.random_seed) if str(self.config.random_seed).strip().isdigit() else None,
-        )
+        if self._is_seed_tts():
+            from app.core.seed_tts_manager import SeedTTSManager
+            assert isinstance(self.tts_model, SeedTTSManager)
+            wav, sr = self.tts_model.generate(
+                text=txt,
+                reference_wav_path=used_ref if used_ref else None,
+                control_instruction=ctrl,
+                speech_rate=int(getattr(self.config, "seed_tts_speech_rate", 0)),
+            )
+        elif self._is_dots_tts():
+            from app.core.dots_tts_manager import DotsTTSManager
+            assert isinstance(self.tts_model, DotsTTSManager)
+            random_seed = None
+            if str(self.config.random_seed).strip().isdigit():
+                random_seed = int(self.config.random_seed)
+            wav, sr = self.tts_model.generate(
+                text=txt,
+                reference_wav_path=used_ref if used_ref else None,
+                inference_timesteps=int(getattr(self.config, "dots_tts_num_steps", 10)),
+                random_seed=random_seed,
+                control_instruction=ctrl,
+            )
+        else:
+            # VoxCPM / IndexTTS：控制指令拼入文本
+            final_text = f"({ctrl}){txt}" if ctrl else txt
+            wav, sr = self.tts_model.generate(
+                text=final_text,
+                cfg_value=float(self.config.cfg_value),
+                inference_timesteps=int(self.config.inference_timesteps),
+                reference_wav_path=used_ref if used_ref else None,
+                random_seed=int(self.config.random_seed) if str(self.config.random_seed).strip().isdigit() else None,
+            )
 
         audio = sanitize_audio(np.asarray(wav))
         audio = ensure_mono(audio)

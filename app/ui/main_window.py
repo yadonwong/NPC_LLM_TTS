@@ -14,6 +14,8 @@ from app.core.tts_batch_runner import BatchRunner
 from app.core.voice_cache import VoiceCacheManager
 from app.core.voxcpm_manager import VoxCPMManager
 from app.core.index_tts_manager import IndexTTSManager
+from app.core.seed_tts_manager import SeedTTSManager
+from app.core.dots_tts_manager import DotsTTSManager
 
 
 class PandasModel(QAbstractTableModel):
@@ -250,7 +252,7 @@ class MainWindow(QMainWindow):
         self.log_emitter.log_signal.connect(self.append_log)
         self.setWindowTitle('NPC LLM TTS'); self.resize(1550, 920)
         self.df=pd.DataFrame(); self.table_model=None; self.proxy=None; self.thread=None; self.runner=None
-        self.downloader=ModelDownloader(self.config.model_path); self.cache=VoiceCacheManager(self.config.voice_cache_dir, self.config.ref_dir); self.vox=VoxCPMManager(self.config.model_path, self.logger); self.index_tts=IndexTTSManager(self.config.index_model_path, self.logger)
+        self.downloader=ModelDownloader(self.config.model_path); self.cache=VoiceCacheManager(self.config.voice_cache_dir, self.config.ref_dir); self.vox=VoxCPMManager(self.config.model_path, self.logger); self.index_tts=IndexTTSManager(self.config.index_model_path, self.logger); self.seed_tts=self._make_seed_tts_manager(); self.dots_tts=self._make_dots_tts_manager()
         self._menu(); self._ui(); self.status_model()
 
     def _menu(self):
@@ -272,7 +274,7 @@ class MainWindow(QMainWindow):
         self.lb_stats=QLabel('总行数:0 | 有效行数:0 | VoiceID:0'); i1.addLayout(x); i1.addWidget(self.lb_stats); ll.addWidget(g1)
         g2=QGroupBox('生成设置'); f=QFormLayout(g2)
         self.dev=QComboBox(); self.dev.addItems(['auto','cpu','mps','cuda','cuda:0','cuda:1']); self.dev.setCurrentText(self.config.device)
-        self.engine=QComboBox(); self.engine.addItems(['voxcpm','indextts']); self.engine.setCurrentText(getattr(self.config,'tts_engine','voxcpm')); self.engine.currentTextChanged.connect(lambda _: self.status_model())
+        self.engine=QComboBox(); self.engine.addItems(['voxcpm','indextts','seed-tts','dots-tts']); self.engine.setCurrentText(getattr(self.config,'tts_engine','voxcpm')); self.engine.currentTextChanged.connect(self._on_engine_changed)
         self.cfg=QLineEdit(str(self.config.cfg_value)); self.steps=QLineEdit(str(self.config.inference_timesteps)); self.seed=QLineEdit(str(self.config.random_seed))
         self.den=QCheckBox('load_denoiser'); self.den.setChecked(self.config.load_denoiser)
         self.offline=QCheckBox('离线模式（不联网下载模型）'); self.offline.setChecked(getattr(self.config,'offline_mode',False))
@@ -280,6 +282,31 @@ class MainWindow(QMainWindow):
         self.reuse=QCheckBox('复用 VoiceID 参考'); self.reuse.setChecked(self.config.reuse_voice_cache)
         self.regen=QCheckBox('每次重新生成参考'); self.regen.setChecked(not self.config.reuse_voice_cache); self.regen.stateChanged.connect(lambda: self.reuse.setChecked(not self.regen.isChecked()))
         f.addRow('TTS引擎',self.engine); f.addRow('device',self.dev); f.addRow('cfg_value',self.cfg); f.addRow('inference_timesteps',self.steps); f.addRow('random_seed',self.seed); f.addRow('',self.den); f.addRow('',self.offline); f.addRow('覆盖策略',self.pol); f.addRow('',self.reuse); f.addRow('',self.regen); ll.addWidget(g2)
+
+        # Seed TTS 2.0 凭据面板（仅在选择 seed-tts 时显示）
+        self.g_seed=QGroupBox('Seed TTS 2.0 设置 (火山引擎)'); sf=QFormLayout(self.g_seed)
+        self.seed_api_key=QLineEdit(getattr(self.config,'seed_tts_api_key','')); self.seed_api_key.setEchoMode(QLineEdit.Password); self.seed_api_key.setPlaceholderText('新版控制台 API Key（与下方二选一）')
+        self.seed_app_id=QLineEdit(getattr(self.config,'seed_tts_app_id','')); self.seed_app_id.setPlaceholderText('旧版 App ID')
+        self.seed_access_key=QLineEdit(getattr(self.config,'seed_tts_access_key','')); self.seed_access_key.setEchoMode(QLineEdit.Password); self.seed_access_key.setPlaceholderText('旧版 Access Key')
+        self.seed_resource=QComboBox(); self.seed_resource.addItems(['seed-tts-2.0','seed-icl-2.0','seed-tts-1.0']); self.seed_resource.setCurrentText(getattr(self.config,'seed_tts_resource_id','seed-tts-2.0'))
+        self.seed_speaker=QLineEdit(getattr(self.config,'seed_tts_speaker','zh_female_shuangkuaisisi_moon_bigtts')); self.seed_speaker.setPlaceholderText('音色 ID，例如 zh_female_shuangkuaisisi_moon_bigtts')
+        self.seed_speech_rate=QLineEdit(str(getattr(self.config,'seed_tts_speech_rate',0))); self.seed_speech_rate.setPlaceholderText('语速 -50~100，0为标准')
+        sf.addRow('API Key Secret',self.seed_api_key); sf.addRow('API Key ID',self.seed_app_id); sf.addRow('Access Key ID',self.seed_access_key); sf.addRow('Resource ID',self.seed_resource); sf.addRow('默认音色 ID',self.seed_speaker); sf.addRow('语速 speech_rate',self.seed_speech_rate)
+        sf.addRow(QLabel('<small>音色列表: <a href="https://www.volcengine.com/docs/6561/1257544">豆包音色列表</a></small>'))
+        ll.addWidget(self.g_seed)
+        self.g_seed.setVisible(getattr(self.config,'tts_engine','voxcpm')=='seed-tts')
+
+        # dots.tts 设置面板（仅在选择 dots-tts 时显示）
+        self.g_dots=QGroupBox('dots.tts 设置 (rednote-hilab)'); df=QFormLayout(self.g_dots)
+        self.dots_model_path=QLineEdit(getattr(self.config,'dots_tts_model_path','')); self.dots_model_path.setPlaceholderText('留空自动用 models/dots.tts-soar 或从 HuggingFace 下载')
+        self.dots_variant=QComboBox(); self.dots_variant.addItems(['dots.tts-soar','dots.tts-base','dots.tts-mf']); self.dots_variant.setCurrentText(getattr(self.config,'dots_tts_variant','dots.tts-soar'))
+        self.dots_num_steps=QLineEdit(str(getattr(self.config,'dots_tts_num_steps',10))); self.dots_num_steps.setPlaceholderText('采样步数，建议 10~32')
+        self.dots_guidance=QLineEdit(str(getattr(self.config,'dots_tts_guidance_scale',1.2))); self.dots_guidance.setPlaceholderText('CFG，默认 1.2')
+        df.addRow('模型路径',self.dots_model_path); df.addRow('模型变体',self.dots_variant); df.addRow('num_steps',self.dots_num_steps); df.addRow('guidance_scale',self.dots_guidance)
+        df.addRow(QLabel('<small>需参考音频克隆音色，与 IndexTTS 用法相同</small>'))
+        ll.addWidget(self.g_dots)
+        self.g_dots.setVisible(getattr(self.config,'tts_engine','voxcpm')=='dots-tts')
+
         g3=QGroupBox('音频设置'); a=QFormLayout(g3)
         self.norm=QCheckBox('启用响度归一化'); self.norm.setChecked(self.config.enable_loudness_normalization)
         self.lufs=QLineEdit(str(self.config.target_lufs)); self.tp=QLineEdit(str(self.config.true_peak_ceiling))
@@ -351,6 +378,34 @@ class MainWindow(QMainWindow):
         if os.name=='nt': os.startfile(p)
         else:
             import subprocess; subprocess.Popen(['open', p])
+
+    def _make_seed_tts_manager(self) -> 'SeedTTSManager':
+        return SeedTTSManager(
+            logger=self.logger,
+            api_key=getattr(self.config, 'seed_tts_api_key', ''),
+            app_id=getattr(self.config, 'seed_tts_app_id', ''),
+            access_key=getattr(self.config, 'seed_tts_access_key', ''),
+            resource_id=getattr(self.config, 'seed_tts_resource_id', 'seed-tts-2.0'),
+            default_speaker=getattr(self.config, 'seed_tts_speaker', 'zh_female_shuangkuaisisi_moon_bigtts'),
+            sample_rate=48000,
+        )
+
+    def _make_dots_tts_manager(self) -> 'DotsTTSManager':
+        return DotsTTSManager(
+            logger=self.logger,
+            model_path=getattr(self.config, 'dots_tts_model_path', ''),
+            model_variant=getattr(self.config, 'dots_tts_variant', 'dots.tts-soar'),
+            num_steps=int(getattr(self.config, 'dots_tts_num_steps', 10)),
+            guidance_scale=float(getattr(self.config, 'dots_tts_guidance_scale', 1.2)),
+        )
+
+    def _on_engine_changed(self, engine: str):
+        if hasattr(self, 'g_seed'):
+            self.g_seed.setVisible(engine == 'seed-tts')
+        if hasattr(self, 'g_dots'):
+            self.g_dots.setVisible(engine == 'dots-tts')
+        self.status_model()
+
     def status_model(self):
         engine=self.engine.currentText() if hasattr(self,'engine') else getattr(self.config,'tts_engine','voxcpm')
         if engine=='indextts':
@@ -358,6 +413,20 @@ class MainWindow(QMainWindow):
             ok=(p/'config.yaml').exists() and (p/'qwen0.6bemo4-merge'/'model.safetensors').exists()
             state='已就绪' if ok else '未安装'
             self.lb_model.setText(f'当前引擎: IndexTTS | 状态: {state}')
+        elif engine=='seed-tts':
+            has_cred = bool(getattr(self.config,'seed_tts_api_key','').strip()) or (
+                bool(getattr(self.config,'seed_tts_app_id','').strip()) and
+                bool(getattr(self.config,'seed_tts_access_key','').strip())
+            )
+            state='凭据已填写' if has_cred else '请填写凭据'
+            self.lb_model.setText(f'当前引擎: Seed TTS 2.0 (云端) | 状态: {state}')
+        elif engine=='dots-tts':
+            variant=getattr(self.config,'dots_tts_variant','dots.tts-soar')
+            mp=getattr(self.config,'dots_tts_model_path','').strip()
+            from pathlib import Path as _P
+            local=_P(mp) if mp else _P(__file__).resolve().parents[3]/'models'/variant
+            state='本地已就绪' if (local/'config.json').exists() else '未下载(首次运行自动拉取)'
+            self.lb_model.setText(f'当前引擎: dots.tts ({variant}) | 状态: {state}')
         else:
             state='已就绪' if self.downloader.is_ready() else '未安装'
             self.lb_model.setText(f'当前引擎: VoxCPM2 | 状态: {state}')
@@ -565,7 +634,39 @@ class MainWindow(QMainWindow):
         return pd.DataFrame(rows)
 
     def apply_cfg(self):
-        c=self.config; c.tts_engine=self.engine.currentText(); c.device=self.dev.currentText(); c.cfg_value=float(self.cfg.text()); c.inference_timesteps=int(self.steps.text()); c.load_denoiser=self.den.isChecked(); c.offline_mode=self.offline.isChecked(); c.random_seed=self.seed.text().strip(); c.enable_loudness_normalization=self.norm.isChecked(); c.target_lufs=float(self.lufs.text()); c.true_peak_ceiling=float(self.tp.text()); c.overwrite_policy=self.pol.currentText(); c.reuse_voice_cache=self.reuse.isChecked() and not self.regen.isChecked()
+        c=self.config
+        c.tts_engine=self.engine.currentText(); c.device=self.dev.currentText()
+        c.cfg_value=float(self.cfg.text()); c.inference_timesteps=int(self.steps.text())
+        c.load_denoiser=self.den.isChecked(); c.offline_mode=self.offline.isChecked()
+        c.random_seed=self.seed.text().strip(); c.enable_loudness_normalization=self.norm.isChecked()
+        c.target_lufs=float(self.lufs.text()); c.true_peak_ceiling=float(self.tp.text())
+        c.overwrite_policy=self.pol.currentText(); c.reuse_voice_cache=self.reuse.isChecked() and not self.regen.isChecked()
+        # Seed TTS 2.0 fields
+        c.seed_tts_api_key=self.seed_api_key.text().strip()
+        c.seed_tts_app_id=self.seed_app_id.text().strip()
+        c.seed_tts_access_key=self.seed_access_key.text().strip()
+        c.seed_tts_resource_id=self.seed_resource.currentText()
+        c.seed_tts_speaker=self.seed_speaker.text().strip()
+        try: c.seed_tts_speech_rate=int(self.seed_speech_rate.text().strip() or '0')
+        except ValueError: c.seed_tts_speech_rate=0
+        # Rebuild the SeedTTSManager with the latest credentials
+        self.seed_tts=SeedTTSManager(
+            logger=self.logger,
+            api_key=c.seed_tts_api_key,
+            app_id=c.seed_tts_app_id,
+            access_key=c.seed_tts_access_key,
+            resource_id=c.seed_tts_resource_id,
+            default_speaker=c.seed_tts_speaker,
+            sample_rate=48000,
+        )
+        # dots.tts fields
+        c.dots_tts_model_path=self.dots_model_path.text().strip()
+        c.dots_tts_variant=self.dots_variant.currentText()
+        try: c.dots_tts_num_steps=int(self.dots_num_steps.text().strip() or '10')
+        except ValueError: c.dots_tts_num_steps=10
+        try: c.dots_tts_guidance_scale=float(self.dots_guidance.text().strip() or '1.2')
+        except ValueError: c.dots_tts_guidance_scale=1.2
+        self.dots_tts=self._make_dots_tts_manager()
     def save_cfg(self): save_settings(self.config)
 
     def start(self):
@@ -619,6 +720,34 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self,'模型加载失败',str(e)); return
             self.lb_model.setText('VoxCPM2: 已加载')
             model_manager=self.vox
+
+        elif engine=='seed-tts':
+            self.lb_model.setText('Seed TTS 2.0: 验证凭据中...')
+            self.append_log('正在验证 Seed TTS 2.0 凭据...')
+            try:
+                dev=self.seed_tts.load_model()
+                self.lb_dev.setText(f'设备: {dev}')
+            except Exception as e:
+                self.pb2.setRange(0,1); self.pb2.setValue(0); self.bs.setEnabled(True)
+                self.lb_model.setText('Seed TTS 2.0: 凭据错误')
+                QMessageBox.critical(self,'Seed TTS 2.0 凭据错误', str(e)); return
+            self.lb_model.setText('Seed TTS 2.0: 就绪')
+            self.append_log(f'Seed TTS 2.0 就绪，resource_id={self.config.seed_tts_resource_id}，speaker={self.config.seed_tts_speaker}')
+            model_manager=self.seed_tts
+
+        elif engine=='dots-tts':
+            self.lb_model.setText('dots.tts: 加载中...'); self.append_log('正在加载 dots.tts 模型（首次运行会从 HuggingFace 下载约 4GB）...')
+            try:
+                dev=self.dots_tts.load_model(device=self.config.device)
+                self.lb_dev.setText(f'设备: {dev}')
+            except Exception as e:
+                self.pb2.setRange(0,1); self.pb2.setValue(0); self.bs.setEnabled(True)
+                self.lb_model.setText('dots.tts: 加载失败')
+                QMessageBox.critical(self,'dots.tts 加载失败', str(e)); return
+            self.lb_model.setText(f'dots.tts ({self.config.dots_tts_variant}): 已加载')
+            self.append_log(f'dots.tts 就绪，variant={self.config.dots_tts_variant}，steps={self.config.dots_tts_num_steps}')
+            model_manager=self.dots_tts
+
         else:
             p=Path(self.config.index_model_path)
             required=[
