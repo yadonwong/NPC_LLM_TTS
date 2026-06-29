@@ -108,14 +108,14 @@ class DotsTTSManager:
         if device == "auto":
             if torch.cuda.is_available():
                 self.device = "cuda"
-            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                self.device = "mps"
             else:
+                # MPS は speaker_embedding dtype 不一致 / 未対応演算が出るため CPU を使う
                 self.device = "cpu"
         else:
-            self.device = device
+            # 明示指定でも MPS は CPU に落とす
+            self.device = "cpu" if device == "mps" else device
 
-        precision = "bfloat16" if self.device != "cpu" else "float32"
+        precision = "bfloat16" if self.device == "cuda" else "float32"
 
         self.logger.info(
             "加载 dots.tts 模型: %s，设备=%s，精度=%s",

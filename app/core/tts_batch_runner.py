@@ -200,7 +200,8 @@ class BatchRunner(QObject):
                         raise ValueError(f"参考音频文件不存在: {requested_ref_wav}")
                     ref_path = custom_ref_path
                 has_ref = ref_path is not None
-                if not self.config.reuse_voice_cache:
+                # dots.tts 必须有参考音频，不受 reuse_voice_cache 开关影响
+                if not self.config.reuse_voice_cache and not self._is_dots_tts():
                     has_ref = False
                     ref_path = None
                 if has_ref and ref_path is not None:
@@ -212,7 +213,8 @@ class BatchRunner(QObject):
                 if not cn_skip:
                     self.current.emit(voice_id, script_id, str(cn_path))
                     audio_cn, lufs_cn = self._synthesize_one(totts_cn, used_ref, cn_path, control_instruction=control_instruction)
-                    if not has_ref:
+                    # dots.tts は参考音声が必須なので、生成結果を参考として保存しない
+                    if not has_ref and not self._is_dots_tts():
                         self.voice_cache_manager.save_reference(voice_id, str(cn_path), script_id, totts_cn, 48000)
                         ref_created = True
                         new_ref = self.voice_cache_manager.get_effective_reference_path(voice_id)
