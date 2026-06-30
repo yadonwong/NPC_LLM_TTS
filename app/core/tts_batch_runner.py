@@ -92,6 +92,10 @@ class BatchRunner(QObject):
     def _is_dots_tts(self) -> bool:
         return self._engine() == "dots-tts"
 
+    def _requires_reference(self) -> bool:
+        """返回 True 表示该引擎必须有参考音频，不受 reuse_voice_cache 开关影响。"""
+        return self._engine() in ("indextts", "dots-tts")
+
     def _synthesize_one(self, text, used_ref, path, control_instruction=""):
         txt = str(text or "").strip()
         ctrl = str(control_instruction or "").strip()
@@ -200,8 +204,8 @@ class BatchRunner(QObject):
                         raise ValueError(f"参考音频文件不存在: {requested_ref_wav}")
                     ref_path = custom_ref_path
                 has_ref = ref_path is not None
-                # dots.tts 必须有参考音频，不受 reuse_voice_cache 开关影响
-                if not self.config.reuse_voice_cache and not self._is_dots_tts():
+                # IndexTTS / dots.tts 必须有参考音频，不受 reuse_voice_cache 开关影响
+                if not self.config.reuse_voice_cache and not self._requires_reference():
                     has_ref = False
                     ref_path = None
                 if has_ref and ref_path is not None:
@@ -213,8 +217,8 @@ class BatchRunner(QObject):
                 if not cn_skip:
                     self.current.emit(voice_id, script_id, str(cn_path))
                     audio_cn, lufs_cn = self._synthesize_one(totts_cn, used_ref, cn_path, control_instruction=control_instruction)
-                    # dots.tts 必须有参考音频，不能将生成结果保存为参考音色
-                    if not has_ref and not self._is_dots_tts():
+                    # IndexTTS / dots.tts 必须有参考音频，不能将生成结果保存为参考音色
+                    if not has_ref and not self._requires_reference():
                         self.voice_cache_manager.save_reference(voice_id, str(cn_path), script_id, totts_cn, 48000)
                         ref_created = True
                         new_ref = self.voice_cache_manager.get_effective_reference_path(voice_id)
