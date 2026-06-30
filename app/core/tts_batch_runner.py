@@ -123,8 +123,12 @@ class BatchRunner(QObject):
                 control_instruction=ctrl,
             )
         else:
-            # VoxCPM / IndexTTS：控制指令拼入文本
-            final_text = f"({ctrl}){txt}" if ctrl else txt
+            # VoxCPM：支持 (happy)文本 括号前缀控制指令
+            # IndexTTS：不支持情感控制，忽略控制指令，只用纯文本
+            if self._engine() == "indextts":
+                final_text = txt
+            else:
+                final_text = f"({ctrl}){txt}" if ctrl else txt
             wav, sr = self.tts_model.generate(
                 text=final_text,
                 cfg_value=float(self.config.cfg_value),
@@ -172,6 +176,14 @@ class BatchRunner(QObject):
             totts_cn = str(row.get("TOTTS_CN", row.get("TOTTS", "")))
             totts_en = str(row.get("TOTTS_EN", row.get("TOTTS_EN_AUTO", "")))
             control_instruction = str(row.get("CONTROL_INSTRUCTION", "")).strip()
+
+            # 从 TOTTS 文本里解析括号控制指令；Excel 专用列优先
+            _, cn_ctrl_from_text, totts_cn_clean = self.parse_totts(totts_cn)
+            _, en_ctrl_from_text, totts_en_clean = self.parse_totts(totts_en)
+            if not control_instruction:
+                control_instruction = cn_ctrl_from_text
+            totts_cn = totts_cn_clean if totts_cn_clean else totts_cn
+            totts_en = totts_en_clean if totts_en_clean else totts_en
 
             if not voice_id or voice_id == "UNKNOWN" or not script_id or script_id == "UNKNOWN":
                 self.row_status.emit(i, "Skipped", "VoiceID/台本ID为空")
