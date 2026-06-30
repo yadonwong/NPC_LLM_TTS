@@ -2,22 +2,30 @@
 dots.tts (rednote-hilab) 本地推理封装
 支持 dots.tts-base / dots.tts-soar / dots.tts-mf 三个变体。
 接口兼容 VoxCPMManager / IndexTTSManager 的 generate() 签名。
+
+【サブプロセス方式】
+メイン venv (transformers 4.52.1) と dots.tts 専用 venv (.venv_dots, transformers 5.x) が
+依存競合するため、dots.tts の推論は .venv_dots の Python で動く
+dots_tts_worker.py をサブプロセスとして起動して行う。
 """
 
+import json
+import struct
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 
 BASE_DIR = Path(__file__).resolve().parents[2]
+WORKER_PATH = Path(__file__).with_name("dots_tts_worker.py")
+DOTS_VENV_PYTHON = BASE_DIR / ".venv_dots" / "bin" / "python"
 
 # ---------------------------------------------------------------------------
 # 控制指令翻译字典
-# dots.tts 使用 instruction_tts 模板，将指令作为自然语言前缀嵌入文本。
-# 格式：模型接收 "[带指令文本]{instruction}，{text}[文本对应语音]{audio}"
 # ---------------------------------------------------------------------------
 DOTS_CONTROL_INSTRUCTION_MAP: dict[str, str] = {
-    # 情感类
     "happy":        "请用开心愉快的语气说",
     "sad":          "请用悲伤难过的语气说",
     "angry":        "请用生气愤怒的语气说",
@@ -30,38 +38,40 @@ DOTS_CONTROL_INSTRUCTION_MAP: dict[str, str] = {
     "serious":      "请用严肃认真的语气说",
     "confident":    "请用自信骄傲的语气说",
     "depressed":    "请用沮丧低落的语气说",
-    # 语速类
     "slow":         "请放慢语速说",
     "fast":         "请加快语速说",
     "very_slow":    "请用非常慢的语速说",
     "very_fast":    "请用非常快的语速说",
-    # 音量类
     "quiet":        "请用较小的音量说",
     "loud":         "请用较大的音量说",
-    # 其他
     "whisper":      "请用轻声耳语的方式说",
     "storytelling": "请用讲故事的语气说",
 }
 
 
 def translate_control_instruction(raw: str) -> Optional[str]:
-    """
-    将 (xxx) 括号指令转换为 dots.tts instruction_tts 模板的前缀字符串。
-    先精确匹配字典（忽略大小写），匹配不到则透传原始字符串。
-    返回 None 表示没有指令。
-    """
     key = raw.strip().lower()
     if not key:
         return None
     return DOTS_CONTROL_INSTRUCTION_MAP.get(key, raw.strip())
 
 
+def _find_dots_python() -> str:
+    """dots.tts 専用 venv の Python を探す。なければメイン venv の Python を返す。"""
+    # Windows 対応
+    win_path = BASE_DIR / ".venv_dots" / "Scripts" / "python.exe"
+    if DOTS_VENV_PYTHON.exists():
+        return str(DOTS_VENV_PYTHON)
+    if win_path.exists():
+        return str(win_path)
+    return sys.executable
+
+
 class DotsTTSManager:
     """
-    本地 dots.tts 推理封装。
-
-    需要参考音频 + 参考文本来克隆音色（零样本 continuation cloning）。
-    参考文本可留空，此时模型会做纯音色克隆（音质略降，官方建议提供）。
+    dots.tts サブプロセス推論ラッパー。
+    .venv_dots の Python + dots_tts_worker.py を子プロセスとして起動し、
+    JSON リクエストを stdin で渡して float32 PCM を stdout から受け取る。
     """
 
     DEFAULT_MODEL_VARIANT = "dots.tts-soar"
@@ -79,10 +89,9 @@ class DotsTTSManager:
         self.num_steps = num_steps
         self.guidance_scale = guidance_scale
         self.device = "cpu"
-        self._runtime = None
         self._ready = False
+        self._python_bin = _find_dots_python()
 
-        # model_path 优先使用用户指定路径，否则用 models/<variant>
         if model_path and Path(model_path).exists():
             self._model_name_or_path = model_path
         else:
@@ -90,45 +99,42 @@ class DotsTTSManager:
             if local_dir.exists():
                 self._model_name_or_path = str(local_dir)
             else:
-                # 自动从 HuggingFace 下载
                 self._model_name_or_path = f"rednote-hilab/{model_variant}"
 
     def load_model(self, device: str = "auto", load_denoiser: bool = False) -> str:
-        try:
-            from dots_tts.runtime import DotsTtsRuntime
-        except ImportError as e:
+        """
+        サブプロセス方式では実際のモデルロードは generate() 時に行われる。
+        ここでは venv と worker スクリプトの存在確認のみ行う。
+        """
+        if not WORKER_PATH.exists():
+            raise RuntimeError(f"dots_tts_worker.py が見つかりません: {WORKER_PATH}")
+
+        dots_venv_ok = DOTS_VENV_PYTHON.exists() or (
+            BASE_DIR / ".venv_dots" / "Scripts" / "python.exe"
+        ).exists()
+        if not dots_venv_ok:
             raise RuntimeError(
-                "缺少 dots_tts 依赖，请运行:\n"
-                "  pip install 'git+https://github.com/rednote-hilab/dots.tts.git' "
-                "-c 'https://raw.githubusercontent.com/rednote-hilab/dots.tts/main/constraints/recommended.txt'"
-            ) from e
+                ".venv_dots が見つかりません。以下を実行して dots.tts 専用環境を作成してください:\n"
+                f"  python3.11 -m venv {BASE_DIR / '.venv_dots'}\n"
+                f"  {BASE_DIR / '.venv_dots' / 'bin' / 'pip'} install "
+                "'git+https://github.com/rednote-hilab/dots.tts.git' --no-deps\n"
+                f"  {BASE_DIR / '.venv_dots' / 'bin' / 'pip'} install "
+                "'transformers>=4.57.0' loguru 'langcodes[data]' "
+                "lingua-language-detector torchdiffeq 'safetensors>=0.8.0' "
+                "'librosa>=0.11.0' 'pydantic>=2.0' soundfile pynini WeTextProcessing"
+            )
 
-        import torch
-
-        if device == "auto":
-            if torch.cuda.is_available():
-                self.device = "cuda"
-            else:
-                # MPS は speaker_embedding dtype 不一致 / 未対応演算が出るため CPU を使う
-                self.device = "cpu"
+        # MPS は CPU にフォールバック
+        if device == "auto" or device == "mps":
+            self.device = "cpu"
         else:
-            # 明示指定でも MPS は CPU に落とす
-            self.device = "cpu" if device == "mps" else device
+            self.device = device
 
-        precision = "bfloat16" if self.device == "cuda" else "float32"
-
-        self.logger.info(
-            "加载 dots.tts 模型: %s，设备=%s，精度=%s",
-            self._model_name_or_path,
-            self.device,
-            precision,
-        )
-        self._runtime = DotsTtsRuntime.from_pretrained(
-            self._model_name_or_path,
-            precision=precision,
-        )
         self._ready = True
-        self.logger.info("dots.tts 模型加载完成，设备=%s", self.device)
+        self.logger.info(
+            "dots.tts サブプロセスモード: python=%s model=%s device=%s",
+            self._python_bin, self._model_name_or_path, self.device,
+        )
         return self.device
 
     def generate(
@@ -141,26 +147,14 @@ class DotsTTSManager:
         prompt_text: str = "",
         control_instruction: str = "",
     ):
-        """
-        兼容现有 generate() 调用签名，返回 (numpy_float32_array, sample_rate)。
-
-        reference_wav_path:  参考音频路径（必须，用于音色克隆）
-        prompt_text:         参考音频的文字内容（推荐填写，可提升相似度）
-        control_instruction: 控制指令 key（如 happy/sad/slow），
-                             通过 DOTS_CONTROL_INSTRUCTION_MAP 翻译后作为
-                             instruction_tts 模板的自然语言前缀注入到 text 中。
-        """
         if not self._ready:
             self.load_model()
 
         if not reference_wav_path:
             raise ValueError("dots.tts 需要参考音频 (reference_wav_path)")
 
-        import torch
-
         num_steps = inference_timesteps if inference_timesteps > 0 else self.num_steps
 
-        # 控制指令处理：翻译后前缀到 text，并切换到 instruction_tts 模板
         final_text = str(text).strip()
         template_name: Optional[str] = None
         instruction_str = translate_control_instruction(control_instruction) if control_instruction else None
@@ -168,32 +162,77 @@ class DotsTTSManager:
             final_text = f"{instruction_str}：{final_text}"
             template_name = "instruction_tts"
 
-        gen_kwargs: dict = dict(
-            text=final_text,
-            prompt_audio_path=str(reference_wav_path),
-            num_steps=num_steps,
-            guidance_scale=self.guidance_scale,
-        )
-        if prompt_text:
-            gen_kwargs["prompt_text"] = str(prompt_text).strip()
-        if template_name:
-            gen_kwargs["template_name"] = template_name
+        precision = "bfloat16" if self.device == "cuda" else "float32"
 
-        if random_seed is not None:
-            torch.manual_seed(random_seed)
+        request = {
+            "model_path": self._model_name_or_path,
+            "device": self.device,
+            "precision": precision,
+            "text": final_text,
+            "prompt_audio_path": str(reference_wav_path),
+            "num_steps": num_steps,
+            "guidance_scale": self.guidance_scale,
+            "random_seed": random_seed,
+        }
+        if prompt_text:
+            request["prompt_text"] = str(prompt_text).strip()
+        if template_name:
+            request["template_name"] = template_name
 
         self.logger.info(
-            "dots.tts 合成: len=%d, steps=%d, cfg=%.1f, template=%s, ref=%s",
-            len(final_text),
-            num_steps,
-            self.guidance_scale,
-            template_name or "tts",
-            Path(reference_wav_path).name,
+            "dots.tts 合成 (subprocess): len=%d, steps=%d, cfg=%.1f, template=%s, ref=%s",
+            len(final_text), num_steps, self.guidance_scale,
+            template_name or "tts", Path(reference_wav_path).name,
         )
 
-        result = self._runtime.generate(**gen_kwargs)
+        return self._run_worker(request)
 
-        audio_tensor = result["audio"].float().cpu().squeeze()
-        sr = int(result["sample_rate"])
-        wav = audio_tensor.numpy().astype(np.float32)
+    def _run_worker(self, request: dict):
+        """サブプロセスを起動してリクエストを送り、音声データを受け取る。"""
+        request_json = json.dumps(request, ensure_ascii=False) + "\n"
+
+        try:
+            proc = subprocess.Popen(
+                [self._python_bin, str(WORKER_PATH)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                f"dots.tts 専用 Python が見つかりません: {self._python_bin}\n"
+                ".venv_dots を作成してから再試行してください。"
+            ) from e
+
+        stdout_data, stderr_data = proc.communicate(
+            input=request_json.encode("utf-8"),
+            timeout=600,
+        )
+
+        # stderr はログとして出力
+        if stderr_data:
+            for line in stderr_data.decode("utf-8", errors="replace").splitlines():
+                self.logger.info("[dots-worker] %s", line)
+
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"dots_tts_worker 異常終了 (code={proc.returncode}):\n"
+                + stderr_data.decode("utf-8", errors="replace")[-2000:]
+            )
+
+        if len(stdout_data) < 8:
+            raise RuntimeError(
+                f"dots_tts_worker の出力が短すぎます ({len(stdout_data)} bytes)"
+            )
+
+        sr = struct.unpack(">I", stdout_data[0:4])[0]
+        wav_len = struct.unpack(">I", stdout_data[4:8])[0]
+        wav_bytes = stdout_data[8: 8 + wav_len]
+
+        if len(wav_bytes) != wav_len:
+            raise RuntimeError(
+                f"音声データ長不一致: expected={wav_len} got={len(wav_bytes)}"
+            )
+
+        wav = np.frombuffer(wav_bytes, dtype=np.float32).copy()
         return wav, sr

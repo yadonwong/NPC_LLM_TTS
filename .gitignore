@@ -1,4 +1,5 @@
 .venv/
+.venv_dots/
 models/
 checkpoints/
 VoiceCache/
