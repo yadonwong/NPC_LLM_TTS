@@ -3,10 +3,9 @@ dots.tts (rednote-hilab) 本地推理封装
 支持 dots.tts-base / dots.tts-soar / dots.tts-mf 三个变体。
 接口兼容 VoxCPMManager / IndexTTSManager 的 generate() 签名。
 
-【サブプロセス方式】
-メイン venv (transformers 4.52.1) と dots.tts 専用 venv (.venv_dots, transformers 5.x) が
-依存競合するため、dots.tts の推論は .venv_dots の Python で動く
-dots_tts_worker.py をサブプロセスとして起動して行う。
+【子进程方式】
+主 venv（transformers 4.52.1）与 dots.tts 专用 venv（.venv_dots，transformers 5.x）存在依赖冲突，
+因此 dots.tts 的推理通过子进程调用 .venv_dots 中的 dots_tts_worker.py 来完成。
 """
 
 import json
@@ -57,8 +56,8 @@ def translate_control_instruction(raw: str) -> Optional[str]:
 
 
 def _find_dots_python() -> str:
-    """dots.tts 専用 venv の Python を探す。なければメイン venv の Python を返す。"""
-    # Windows 対応
+    """查找 dots.tts 专用 venv 的 Python 路径，不存在则返回当前解释器路径。"""
+    # Windows 兼容路径
     win_path = BASE_DIR / ".venv_dots" / "Scripts" / "python.exe"
     if DOTS_VENV_PYTHON.exists():
         return str(DOTS_VENV_PYTHON)
@@ -69,9 +68,9 @@ def _find_dots_python() -> str:
 
 class DotsTTSManager:
     """
-    dots.tts サブプロセス推論ラッパー。
-    .venv_dots の Python + dots_tts_worker.py を子プロセスとして起動し、
-    JSON リクエストを stdin で渡して float32 PCM を stdout から受け取る。
+    dots.tts 子进程推理封装。
+    以子进程方式启动 .venv_dots/bin/python + dots_tts_worker.py，
+    通过 stdin 传入 JSON 请求，从 stdout 接收 float32 PCM 音频数据。
     """
 
     DEFAULT_MODEL_VARIANT = "dots.tts-soar"
@@ -103,18 +102,18 @@ class DotsTTSManager:
 
     def load_model(self, device: str = "auto", load_denoiser: bool = False) -> str:
         """
-        サブプロセス方式では実際のモデルロードは generate() 時に行われる。
-        ここでは venv と worker スクリプトの存在確認のみ行う。
+        子进程方式下，实际的模型加载在 generate() 调用时由子进程完成。
+        此方法仅检查专用 venv 和 worker 脚本是否存在。
         """
         if not WORKER_PATH.exists():
-            raise RuntimeError(f"dots_tts_worker.py が見つかりません: {WORKER_PATH}")
+            raise RuntimeError(f"未找到 dots_tts_worker.py：{WORKER_PATH}")
 
         dots_venv_ok = DOTS_VENV_PYTHON.exists() or (
             BASE_DIR / ".venv_dots" / "Scripts" / "python.exe"
         ).exists()
         if not dots_venv_ok:
             raise RuntimeError(
-                ".venv_dots が見つかりません。以下を実行して dots.tts 専用環境を作成してください:\n"
+                f"未找到 .venv_dots，请执行以下命令创建 dots.tts 专用环境：\n"
                 f"  python3.11 -m venv {BASE_DIR / '.venv_dots'}\n"
                 f"  {BASE_DIR / '.venv_dots' / 'bin' / 'pip'} install "
                 "'git+https://github.com/rednote-hilab/dots.tts.git' --no-deps\n"
@@ -124,7 +123,7 @@ class DotsTTSManager:
                 "'librosa>=0.11.0' 'pydantic>=2.0' soundfile pynini WeTextProcessing"
             )
 
-        # MPS は CPU にフォールバック
+        # MPS 回退到 CPU
         if device == "auto" or device == "mps":
             self.device = "cpu"
         else:
@@ -132,7 +131,7 @@ class DotsTTSManager:
 
         self._ready = True
         self.logger.info(
-            "dots.tts サブプロセスモード: python=%s model=%s device=%s",
+            "dots.tts 子进程模式: python=%s model=%s device=%s",
             self._python_bin, self._model_name_or_path, self.device,
         )
         return self.device
@@ -188,7 +187,7 @@ class DotsTTSManager:
         return self._run_worker(request)
 
     def _run_worker(self, request: dict):
-        """サブプロセスを起動してリクエストを送り、音声データを受け取る。"""
+        """启动子进程，发送请求并接收音频数据。"""
         request_json = json.dumps(request, ensure_ascii=False) + "\n"
 
         try:
@@ -200,8 +199,8 @@ class DotsTTSManager:
             )
         except FileNotFoundError as e:
             raise RuntimeError(
-                f"dots.tts 専用 Python が見つかりません: {self._python_bin}\n"
-                ".venv_dots を作成してから再試行してください。"
+                f"未找到 dots.tts 专用 Python：{self._python_bin}\n"
+                "请先创建 .venv_dots 后重试。"
             ) from e
 
         stdout_data, stderr_data = proc.communicate(
@@ -209,20 +208,20 @@ class DotsTTSManager:
             timeout=600,
         )
 
-        # stderr はログとして出力
+        # stderr 内容作为日志输出
         if stderr_data:
             for line in stderr_data.decode("utf-8", errors="replace").splitlines():
                 self.logger.info("[dots-worker] %s", line)
 
         if proc.returncode != 0:
             raise RuntimeError(
-                f"dots_tts_worker 異常終了 (code={proc.returncode}):\n"
+                f"dots_tts_worker 异常退出 (code={proc.returncode}):\n"
                 + stderr_data.decode("utf-8", errors="replace")[-2000:]
             )
 
         if len(stdout_data) < 8:
             raise RuntimeError(
-                f"dots_tts_worker の出力が短すぎます ({len(stdout_data)} bytes)"
+                f"dots_tts_worker 输出数据过短 ({len(stdout_data)} bytes)"
             )
 
         sr = struct.unpack(">I", stdout_data[0:4])[0]
@@ -231,7 +230,7 @@ class DotsTTSManager:
 
         if len(wav_bytes) != wav_len:
             raise RuntimeError(
-                f"音声データ長不一致: expected={wav_len} got={len(wav_bytes)}"
+                f"音频数据长度不匹配：expected={wav_len} got={len(wav_bytes)}"
             )
 
         wav = np.frombuffer(wav_bytes, dtype=np.float32).copy()

@@ -213,7 +213,7 @@ class BatchRunner(QObject):
                 if not cn_skip:
                     self.current.emit(voice_id, script_id, str(cn_path))
                     audio_cn, lufs_cn = self._synthesize_one(totts_cn, used_ref, cn_path, control_instruction=control_instruction)
-                    # dots.tts は参考音声が必須なので、生成結果を参考として保存しない
+                    # dots.tts 必须有参考音频，不能将生成结果保存为参考音色
                     if not has_ref and not self._is_dots_tts():
                         self.voice_cache_manager.save_reference(voice_id, str(cn_path), script_id, totts_cn, 48000)
                         ref_created = True

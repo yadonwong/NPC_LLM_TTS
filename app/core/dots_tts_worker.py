@@ -1,27 +1,27 @@
 """
-dots.tts サブプロセスワーカー
-.venv_dots の Python で実行される独立プロセス。
+dots.tts 子进程工作器
+由 .venv_dots 中的 Python 解释器独立运行。
 
-プロトコル:
-  stdin  <- 1行の JSON (request)
-  stdout <- 4バイト big-endian uint32 (wavデータ長) + wavデータ (bytes)
-  stderr <- ログ / エラーメッセージ
+通信协议：
+  stdin  <- 一行 JSON（请求）
+  stdout <- 4字节 big-endian uint32（wav数据长度）+ wav数据（bytes）
+  stderr <- 日志 / 错误信息
 
-Request JSON:
+请求 JSON 字段：
   {
     "model_path": str,
     "device": str,           # "cpu" | "cuda"
     "precision": str,        # "float32" | "bfloat16"
     "text": str,
     "prompt_audio_path": str,
-    "prompt_text": str,      # optional
-    "template_name": str,    # optional: "tts" | "instruction_tts"
+    "prompt_text": str,      # 可选
+    "template_name": str,    # 可选："tts" | "instruction_tts"
     "num_steps": int,
     "guidance_scale": float,
     "random_seed": int | null
   }
 
-Response:
+返回格式：
   struct.pack(">I", sample_rate) +
   struct.pack(">I", wav_bytes_len) +
   wav_bytes  (float32 LE PCM)
@@ -92,7 +92,7 @@ def main() -> None:
     sys.stderr.write(f"INFO: done sr={sr} samples={len(wav_np)}\n")
     sys.stderr.flush()
 
-    # stdout: sample_rate(4B) + wav_len(4B) + wav_bytes
+    # 输出格式：sample_rate(4B) + wav_len(4B) + wav_bytes
     out = sys.stdout.buffer
     out.write(struct.pack(">I", sr))
     out.write(struct.pack(">I", len(wav_bytes)))
